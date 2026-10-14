@@ -156,6 +156,42 @@
   .lugar .desc { font-size: 17px; }
   .lugar .extra { color: var(--suave); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 
+  /* ---- Rutinas: despertador y modo trabajo ---- */
+  .m-rutina .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
+  .m-rutina .m-icono, .m-rutina .textos { pointer-events: none; position: relative; }
+  .m-rutina .interruptor { position: absolute; top: 14px; right: 14px; }
+  .m-rutina.activa { border-color: rgba(255, 196, 120, .45); background: rgba(255, 180, 90, .10); }
+  .interruptor { width: 52px; height: 30px; border-radius: 99px; border: 0; padding: 0; background: rgba(255, 255, 255, .16); position: relative; transition: background .25s; flex: none; }
+  .interruptor::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s; }
+  .interruptor.on { background: #34c759; }
+  .interruptor.on::after { transform: translateX(22px); }
+  .ajustes { justify-content: flex-start; gap: 16px; }
+  .tarjeta { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 22px; padding: 16px 18px; }
+  .renglon { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 17px; }
+  .etiqueta { color: var(--suave); font-size: 14px; margin-bottom: 10px; }
+  .ajustes input[type=time] { font: inherit; font-size: 56px; font-weight: 700; color: var(--texto); background: none; border: 0; width: 100%;
+                              text-align: center; font-variant-numeric: tabular-nums; color-scheme: dark; }
+  .opciones { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opciones .chip { padding: 8px 14px; }
+  .dias .chip { width: 42px; height: 42px; padding: 0; justify-content: center; }
+  .probar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 14px; font-size: 16px; text-align: center; }
+  .probar:active { background: rgba(255, 255, 255, .25); }
+  .explica { color: var(--suave); font-size: 14px; text-align: center; }
+
+  /* ---- Hablarle al panel ---- */
+  #microfono { position: fixed; z-index: 5; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%;
+               border: 0; background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); display: grid; place-items: center; }
+  #microfono svg { width: 28px; height: 28px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  #voz { position: fixed; z-index: 6; inset: 0; background: rgba(5, 7, 11, .97); display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 22px; padding: 30px; text-align: center; }
+  #voz .onda { width: 110px; height: 110px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
+  #voz .onda svg { width: 44px; height: 44px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  #voz.escuchando .onda { animation: latido 1.2s ease-in-out infinite; }
+  @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, .35); } 50% { box-shadow: 0 0 0 26px rgba(255, 255, 255, 0); } }
+  #voz .oido { font-size: 22px; min-height: 30px; }
+  #voz .respuesta { font-size: 18px; color: var(--suave); max-width: 420px; }
+  #voz .ayuda { font-size: 14px; color: rgba(244, 246, 250, .4); max-width: 420px; line-height: 1.7; }
+
   /* ---- Modo noche: pantalla negra con un reloj tenue ---- */
   #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column;
            align-items: center; justify-content: center; color: rgba(255, 255, 255, .32); cursor: pointer; }
@@ -175,7 +211,23 @@
   <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
   <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
   <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
-  <section class="bloque"><h2>Hoy</h2>
+  <section class="bloque"><h2>Rutinas</h2>
+    <div class="grilla">
+      <div class="mosaico m-rutina" id="m-despertador">
+        <button class="abrir" aria-label="Ajustes del despertador"></button>
+        <div class="m-icono">⏰</div>
+        <div class="textos"><div class="m-grande">--:--</div><div class="m-sub">Despertador</div></div>
+        <button class="interruptor" aria-label="Activar o desactivar el despertador"></button>
+      </div>
+      <div class="mosaico m-rutina" id="m-trabajo">
+        <button class="abrir" aria-label="Ajustes del modo trabajo"></button>
+        <div class="m-icono">🚦</div>
+        <div class="textos"><div class="m-titulo">Modo trabajo</div><div class="m-sub">Apagado</div></div>
+        <button class="interruptor" aria-label="Activar o desactivar el modo trabajo"></button>
+      </div>
+    </div>
+  </section>
+  <section class="bloque" style="padding-bottom: 70px"><h2>Hoy</h2>
     <div class="grilla">
       <button class="mosaico" id="m-viaje">
         <div class="m-icono">🚗</div>
@@ -195,6 +247,15 @@
 
 <div id="detalle" class="oculta">
   <button id="volver"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Inicio</button>
+</div>
+
+<button id="microfono" aria-label="Hablarle al panel"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></button>
+<div id="voz" class="oculta">
+  <div class="onda"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></div>
+  <div class="oido"></div>
+  <div class="respuesta"></div>
+  <div class="ayuda">Probá: "prendé la lámpara" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
+    "¿a qué hora salgo?" · "¿cómo está el clima?" · "despertador a las 6 y media" · "modo noche"</div>
 </div>
 
 <div id="noche" class="oculta">
@@ -355,6 +416,7 @@ function crear(l) {
   chip.onclick = () => { fueraDeEscenas[l.id] = !fueraDeEscenas[l.id]; guardarSelector(); pintarSelector(); };
   document.getElementById('selector').appendChild(chip);
   pintarSelector();
+  pintarRutinas();   // para que la luz nueva aparezca en el despertador y el modo trabajo
   s.dataset.id = l.id;
   return tarjetas[l.id] = s;
 }
@@ -517,6 +579,7 @@ const grados = n => Math.round(n) + '°';
 async function refrescarClima() {
   let d;
   try { d = await (await fetch('/api/clima')).json(); } catch (e) { return; }
+  datosClima = d;
   const filas = [];
   for (const clave of ['casa', 'trabajo']) {
     const c = d[clave], caja = clima.querySelector(`[data-l="${clave}"]`);
@@ -542,8 +605,253 @@ async function refrescarClima() {
   mc.querySelector('.filas').innerHTML = filas.join('');
   mc.querySelector('.m-icono').classList.add('oculta');
 }
+let datosClima = null;
 refrescarClima();
 setInterval(refrescarClima, 10 * 60000);
+
+// ---- rutinas: despertador y modo trabajo (las ejecuta el servidor, aunque la pantalla esté apagada) ----
+let ajustes = null;
+const DIAS_CORTOS = [[1, 'L'], [2, 'M'], [3, 'M'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']];
+const nombreLuz = id => tarjetas[id] ? tarjetas[id].querySelector('.nombre').textContent : id;
+
+async function guardarAjustes(cambios) {
+  try { ajustes = await (await fetch('/api/ajustes', { method: 'POST', body: JSON.stringify(cambios) })).json(); } catch (e) {}
+  pintarRutinas();
+}
+async function cargarAjustes() {
+  try { ajustes = await (await fetch('/api/ajustes')).json(); } catch (e) {}
+  pintarRutinas();
+}
+
+function pantallaRutina(modo, titulo, explica) {
+  const s = document.createElement('section');
+  s.className = 'luz info ajustes';
+  s.dataset.ambiente = modo === 'despertador' ? '#3a2410' : '#13321c';
+  s.innerHTML = `
+    <div class="cabecera"><h1 class="nombre">${titulo}</h1></div>
+    <div class="tarjeta renglon"><span>Activado</span><button class="interruptor" aria-label="Activar o desactivar"></button></div>
+    ${modo === 'despertador' ? `<div class="tarjeta"><div class="etiqueta">Hora de despertarse</div><input type="time" class="hora-alarma"></div>
+      <div class="tarjeta"><div class="etiqueta">Días</div><div class="opciones dias"></div></div>` : ''}
+    <div class="tarjeta"><div class="etiqueta">Luces</div><div class="opciones luces"></div></div>
+    <div class="tarjeta"><div class="etiqueta minutos-titulo"></div><div class="opciones minutos"></div></div>
+    <div class="explica"></div>
+    <button class="probar">Probar ahora (versión rápida)</button>`;
+  s.querySelector('.explica').textContent = explica;
+  s.querySelector('.interruptor').onclick = () => guardarAjustes({ [modo]: { activo: !ajustes[modo].activo } });
+  const h = s.querySelector('.hora-alarma');
+  if (h) h.onchange = () => h.value && guardarAjustes({ [modo]: { hora: h.value } });
+  const probar = s.querySelector('.probar');
+  probar.onclick = async () => {
+    probar.textContent = 'Probando…';
+    try { await fetch('/api/probar/' + modo, { method: 'POST' }); } catch (e) {}
+    setTimeout(() => probar.textContent = 'Probar ahora (versión rápida)', 32000);
+  };
+  detalle.appendChild(s);
+  const m = document.getElementById('m-' + modo);
+  m.querySelector('.abrir').onclick = () => abrir(s);
+  m.querySelector('.interruptor').onclick = () => guardarAjustes({ [modo]: { activo: !ajustes[modo].activo } });
+  return s;
+}
+const pantallas = {
+  despertador: pantallaRutina('despertador', 'Despertador',
+    'Las luces elegidas se prenden de a poco simulando un amanecer: arrancan rojizas y muy tenues, y a la hora elegida quedan en blanco cálido al máximo.'),
+  trabajo: pantallaRutina('trabajo', 'Modo trabajo',
+    'Antes de la hora de salir, las luces elegidas pasan de verde a amarillo y a rojo. A la hora exacta de salir parpadean 4 veces y quedan rojas. Usa la hora de salida calculada con el tráfico, los días de trabajo.'),
+};
+
+function chipsOpcion(cont, valores, elegidos, alTocar) {
+  cont.innerHTML = '';
+  for (const [valor, texto] of valores) {
+    const c = document.createElement('button');
+    c.className = 'chip' + (elegidos.includes(valor) ? ' sel' : '');
+    c.textContent = texto;
+    c.onclick = () => alTocar(valor);
+    cont.appendChild(c);
+  }
+}
+const alternarEn = (lista, v) => lista.includes(v) ? lista.filter(x => x !== v) : [...lista, v];
+
+function resumirDias(dias) {
+  const orden = [...dias].sort();
+  if (orden.join() === '1,2,3,4,5,6') return 'L a S';
+  if (orden.join() === '1,2,3,4,5') return 'L a V';
+  if (orden.length === 7) return 'todos los días';
+  return orden.map(n => DIAS_CORTOS[n - 1][1]).join(' ') || 'ningún día';
+}
+
+function pintarRutinas() {
+  if (!ajustes || ajustes.error) return;
+  for (const modo of ['despertador', 'trabajo']) {
+    const a = ajustes[modo], s = pantallas[modo], m = document.getElementById('m-' + modo);
+    s.querySelector('.interruptor').classList.toggle('on', a.activo);
+    m.querySelector('.interruptor').classList.toggle('on', a.activo);
+    m.classList.toggle('activa', a.activo);
+    chipsOpcion(s.querySelector('.luces'), Object.keys(tarjetas).map(id => [id, nombreLuz(id)]), a.luces,
+      id => guardarAjustes({ [modo]: { luces: alternarEn(a.luces, id) } }));
+    chipsOpcion(s.querySelector('.minutos'), [10, 20, 30, 45, 60].map(n => [n, n + ' min']), [a.minutos],
+      n => guardarAjustes({ [modo]: { minutos: n } }));
+    s.querySelector('.minutos-titulo').textContent = modo === 'despertador'
+      ? 'Cuánto antes de la hora empieza a prenderse' : 'Cuánto antes de la hora de salir empieza';
+  }
+  const d = ajustes.despertador, sd = pantallas.despertador, h = sd.querySelector('.hora-alarma');
+  if (document.activeElement !== h) h.value = d.hora;
+  chipsOpcion(sd.querySelector('.dias'), DIAS_CORTOS, d.dias, n => guardarAjustes({ despertador: { dias: alternarEn(d.dias, n) } }));
+  const md = document.getElementById('m-despertador');
+  md.querySelector('.m-grande').textContent = d.hora;
+  md.querySelector('.m-sub').textContent = d.activo ? 'Despertador · ' + resumirDias(d.dias) : 'Despertador apagado';
+  const t = ajustes.trabajo;
+  document.querySelector('#m-trabajo .m-sub').textContent = t.activo ? `Empieza ${t.minutos} min antes de salir` : 'Apagado';
+}
+cargarAjustes();
+setInterval(cargarAjustes, 60000);
+
+// ---- hablarle al panel (usa el reconocimiento de voz de Chrome) ----
+const voz = document.getElementById('voz');
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+const sinTildes = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function decir(texto) {
+  voz.querySelector('.respuesta').textContent = texto;
+  try {
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'es-AR';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+let cierreVoz = null;
+function cerrarVoz(demora) { clearTimeout(cierreVoz); cierreVoz = setTimeout(() => voz.classList.add('oculta'), demora); }
+voz.onclick = () => cerrarVoz(0);
+
+document.getElementById('microfono').onclick = () => {
+  voz.classList.remove('oculta');
+  voz.querySelector('.oido').textContent = '';
+  voz.querySelector('.respuesta').textContent = '';
+  clearTimeout(cierreVoz);
+  if (!Reconocedor) { decir('Este navegador no permite reconocer la voz. Usá Chrome.'); return cerrarVoz(6000); }
+  const r = new Reconocedor();
+  r.lang = 'es-AR';
+  r.interimResults = true;
+  voz.classList.add('escuchando');
+  voz.querySelector('.oido').textContent = 'Escuchando…';
+  let final = '';
+  r.onresult = e => {
+    const t = [...e.results].map(x => x[0].transcript).join(' ');
+    voz.querySelector('.oido').textContent = '“' + t + '”';
+    if (e.results[e.results.length - 1].isFinal) final = t;
+  };
+  r.onerror = e => {
+    if (e.error === 'not-allowed') decir('No tengo permiso para usar el micrófono. Habilitalo en los permisos de Chrome.');
+    else if (e.error === 'network') decir('Para entender la voz necesito internet.');
+    else if (e.error !== 'no-speech' && e.error !== 'aborted') decir('No pude escuchar bien. Probá de nuevo.');
+  };
+  r.onend = () => {
+    voz.classList.remove('escuchando');
+    if (final) decir(entenderComando(final));
+    else if (!voz.querySelector('.respuesta').textContent) { voz.querySelector('.oido').textContent = ''; decir('No escuché nada.'); }
+    cerrarVoz(7000);
+  };
+  r.start();
+};
+
+const NUMEROS = { una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
+const COLORES = { rojo: '#ff0000', roja: '#ff0000', azul: '#1e5bff', verde: '#00ff40', violeta: '#7a2cff', morado: '#7a2cff', lila: '#b07cff',
+  amarillo: '#ffd000', amarilla: '#ffd000', naranja: '#ff7a00', rosa: '#ff3c9a', celeste: '#3cc8ff', turquesa: '#00e0c0' };
+
+function horaDicha(t) {
+  // "6:30", "6 y 30", "6 y media", "seis y cuarto", "7 menos cuarto", "a las 7"
+  t = t.replace(/\b(una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/g, w => NUMEROS[w]);
+  const m = t.match(/(\d{1,2})(?:[:.](\d{2})| y (\d{1,2}|media|cuarto)| menos (cuarto|\d{1,2}))?/);
+  if (!m) return null;
+  let h = +m[1], min = 0;
+  if (m[2]) min = +m[2];
+  else if (m[3]) min = m[3] === 'media' ? 30 : m[3] === 'cuarto' ? 15 : +m[3];
+  else if (m[4]) { h -= 1; min = 60 - (m[4] === 'cuarto' ? 15 : +m[4]); }
+  if (/de la (tarde|noche)/.test(t) && h < 12) h += 12;
+  if (h > 23 || min > 59) return null;
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
+function lucesNombradas(t) {
+  const ids = Object.keys(tarjetas).filter(id => t.includes(sinTildes(nombreLuz(id))));
+  return ids.length ? ids : Object.keys(tarjetas);
+}
+function cambiarLuces(ids, cambios) {
+  for (const id of ids) {
+    const s = tarjetas[id];
+    if (!s || s.classList.contains('offline')) continue;
+    if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
+    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+    textoEstado(s);
+    enviar(id, cambios, true);
+  }
+}
+const quienes = ids => ids.length === Object.keys(tarjetas).length ? (ids.length > 1 ? 'las luces' : 'la luz') : ids.map(nombreLuz).join(' y ');
+const esApagar = t => /\b(apag|desactiv|sac|cancel)/.test(t);
+
+function entenderComando(texto) {
+  const t = sinTildes(texto);
+  // Rutinas
+  if (t.includes('despertador') || t.includes('alarma')) {
+    if (esApagar(t)) { guardarAjustes({ despertador: { activo: false } }); return 'Listo, apagué el despertador.'; }
+    const h = horaDicha(t);
+    if (h) { guardarAjustes({ despertador: { activo: true, hora: h } }); return `Listo, el despertador queda a las ${h}.`; }
+    guardarAjustes({ despertador: { activo: true } });
+    return `Despertador activado a las ${ajustes ? ajustes.despertador.hora : ''}.`;
+  }
+  if (t.includes('modo trabajo')) {
+    const activo = !esApagar(t);
+    guardarAjustes({ trabajo: { activo } });
+    return activo ? 'Modo trabajo activado.' : 'Modo trabajo apagado.';
+  }
+  if (t.includes('modo noche') || t.includes('buenas noches')) {
+    setTimeout(() => { voz.classList.add('oculta'); nocheManual = true; revisarNoche(); }, 2500);
+    return 'Buenas noches.';
+  }
+  // Preguntas
+  if (/(salgo|salir|salida|trafico)/.test(t)) {
+    const v = datosViaje;
+    if (!v || !v.ok) return 'Todavía no tengo la hora de salida.';
+    return `Para llegar a las ${hora(new Date(v.llegada))} tenés que salir a las ${hora(new Date(v.salida))}. El viaje tarda ${v.minutos} minutos` +
+      (v.demora ? `, con ${v.demora} de demora por tráfico.` : ', sin demoras por tráfico.');
+  }
+  if (/(clima|temperatura|llueve|llover|lluvia|tiempo|frio hace|calor hace)/.test(t)) {
+    const c = datosClima && datosClima.casa;
+    if (!c || !c.ok) return 'Todavía no tengo el clima.';
+    const tt = TIEMPO.find(x => x[0].includes(c.codigo));
+    return `En casa hace ${Math.round(c.temp)} grados, ${(tt ? tt[1] : 'variable').toLowerCase()}. ` +
+      `La probabilidad de lluvia en las próximas 3 horas es del ${c.lluvia_3h} por ciento.`;
+  }
+  // Escenas ("escena cine", o solo "cine", "relax", "tenue")
+  for (const [nombre, , cambios] of ESCENAS) {
+    const clave = sinTildes(nombre);
+    if (t.includes('escena ' + clave) || (!['apagar', 'prender'].includes(clave) && t.includes(clave))) {
+      aplicarEscena(cambios);
+      return `Escena ${nombre.toLowerCase()}.`;
+    }
+  }
+  // Luces
+  const ids = lucesNombradas(t);
+  const n = t.match(/(\d{1,3})/);
+  if (t.includes('brillo') && n) {
+    const b = Math.max(1, Math.min(100, +n[1]));
+    cambiarLuces(ids, { encendida: true, brillo: b });
+    return `Brillo de ${quienes(ids)} al ${b} por ciento.`;
+  }
+  for (const [palabra, hex] of Object.entries(COLORES)) {
+    if (new RegExp('\\b' + palabra + '\\b').test(t)) { cambiarLuces(ids, { encendida: true, color: hex }); return `Puse ${quienes(ids)} en ${palabra}.`; }
+  }
+  for (const [palabra, valor] of [['calid', 0], ['neutr', 50], ['fri', 100], ['blanc', 50]]) {
+    if (new RegExp('\\b' + palabra + '[oa]\\b').test(t)) {
+      cambiarLuces(ids, { encendida: true, blanco: valor, brillo: +(tarjetas[ids[0]] ? tarjetas[ids[0]].querySelector('.brillo').value : 100) });
+      return `Puse ${quienes(ids)} en blanco ${{ calid: 'cálido', neutr: 'neutro', fri: 'frío', blanc: 'neutro' }[palabra]}.`;
+    }
+  }
+  if (/\bapag/.test(t)) { cambiarLuces(ids, { encendida: false }); return `Apagué ${quienes(ids)}.`; }
+  if (/\b(prend|encend)/.test(t)) { cambiarLuces(ids, { encendida: true }); return `Prendí ${quienes(ids)}.`; }
+  return 'No entendí ese pedido. Abajo tenés algunos ejemplos.';
+}
 
 // ---- modo noche ----
 const noche = document.getElementById('noche');
