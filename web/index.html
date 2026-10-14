@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0b0d12">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icono.svg">
-<title>Mis luces</title>
+<title>Mi casa</title>
 <style>
   :root {
     --fondo: #0b0d12;
@@ -18,20 +18,72 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--texto);
                font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  button { font: inherit; color: inherit; cursor: pointer; }
+  button { font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+  .oculta { display: none !important; }
 
-  /* Fondo que toma el color de la luz que se está viendo */
+  /* Fondo que toma el color de lo que se está viendo */
   #ambiente { position: fixed; inset: 0; transition: background 1s ease;
               background: radial-gradient(120% 70% at 50% 28%, var(--ambiente, #1a1f2b) 0%, transparent 65%); opacity: .55; }
 
-  #carrusel { position: relative; height: 100%; display: flex; overflow-x: auto; overflow-y: hidden;
-              scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  #carrusel::-webkit-scrollbar { display: none; }
+  /* ---- Inicio: reloj + mosaicos ---- */
+  #inicio { position: fixed; inset: 0; overflow-y: auto; scrollbar-width: none;
+            padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+  #inicio::-webkit-scrollbar { display: none; }
+  #inicio > * { max-width: 520px; margin-left: auto; margin-right: auto; }
+  .reloj { text-align: center; margin-bottom: 26px; }
+  .reloj .hora { font-size: 72px; font-weight: 700; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .reloj .fecha { margin-top: 6px; color: var(--suave); font-size: 16px; }
+  h2 { margin: 0 4px 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--suave); }
+  .bloque { margin-bottom: 24px; }
 
-  .luz { flex: 0 0 100%; height: 100%; scroll-snap-align: center; scroll-snap-stop: always;
-         display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-         padding: calc(44px + env(safe-area-inset-top)) 24px calc(56px + env(safe-area-inset-bottom));
-         overflow-y: auto; }
+  .escenas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .escena { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 20px; padding: 12px 2px 10px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; color: var(--suave); transition: all .2s; }
+  .escena span { font-size: 28px; line-height: 1; }
+  .escena:active, .escena.tocada { background: rgba(255, 255, 255, .2); color: var(--texto); transform: scale(.96); }
+
+  .grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mosaico { position: relative; border: 1px solid var(--borde); background: var(--vidrio); border-radius: 24px;
+             min-height: 132px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
+             transition: background .4s, border-color .4s, box-shadow .4s; overflow: hidden; }
+  .mosaico:active { transform: scale(.98); }
+  .mosaico .m-icono { font-size: 30px; line-height: 1; }
+  .mosaico .m-titulo { font-size: 17px; font-weight: 650; margin-top: 10px; }
+  .mosaico .m-sub { color: var(--suave); font-size: 14px; }
+  .mosaico .m-grande { font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .mosaico.ancho { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; }
+
+  /* Mosaico de luz: se tiñe con el color de la luz cuando está prendida */
+  .m-luz .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
+  .m-luz .m-icono { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .08);
+                    transition: all .4s; position: relative; pointer-events: none; }
+  .m-luz .m-icono svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  .m-luz .textos { pointer-events: none; position: relative; }
+  .m-luz .m-power { position: absolute; top: 12px; right: 12px; width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--borde);
+                    background: rgba(255, 255, 255, .06); display: grid; place-items: center; }
+  .m-luz .m-power svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.4; stroke-linecap: round; }
+  .m-luz.on { background: color-mix(in srgb, var(--color) 20%, rgba(255, 255, 255, .05)); border-color: color-mix(in srgb, var(--color) 45%, transparent);
+              box-shadow: 0 0 40px -8px color-mix(in srgb, var(--color) 55%, transparent); }
+  .m-luz.on .m-icono { background: var(--color); box-shadow: 0 0 22px color-mix(in srgb, var(--color) 80%, transparent); }
+  .m-luz.on .m-icono svg { stroke: #101218; }
+  .m-luz.on .m-power { background: rgba(255, 255, 255, .9); border-color: transparent; }
+  .m-luz.on .m-power svg { stroke: #101218; }
+  .m-luz.offline { opacity: .45; }
+
+  .m-clima { justify-content: center; gap: 10px; }
+  .m-clima .fila { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+  .m-clima .fila b { font-size: 24px; font-variant-numeric: tabular-nums; }
+  .m-clima .fila span:last-child { color: var(--suave); }
+
+  /* ---- Detalle: una pantalla por luz o ventana de información ---- */
+  #detalle { position: fixed; inset: 0; }
+  #volver { position: absolute; z-index: 2; top: calc(14px + env(safe-area-inset-top)); left: 12px; border: 1px solid var(--borde);
+            background: rgba(20, 23, 31, .7); border-radius: 99px; padding: 8px 16px 8px 12px; font-size: 15px; display: flex; align-items: center; gap: 4px; }
+  #volver svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+  .luz { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: space-between;
+         padding: calc(76px + env(safe-area-inset-top)) 24px calc(40px + env(safe-area-inset-bottom)); overflow-y: auto; }
+  .luz.activa { display: flex; }
   .luz > * { width: 100%; max-width: 420px; }
 
   .cabecera { text-align: center; }
@@ -72,16 +124,11 @@
   .tono::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 3px solid rgba(0, 0, 0, .35); }
 
   .blancos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .blanco { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 13px 0; font-size: 15px; transition: background .2s; }
+  .blanco { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 13px 0; font-size: 15px; text-align: center; transition: background .2s; }
   .blanco:active { background: rgba(255, 255, 255, .18); }
   .blanco i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
 
   .luz.offline .centro, .luz.offline .controles { opacity: .25; pointer-events: none; }
-
-  /* Indicador de página */
-  #puntos { position: fixed; left: 0; right: 0; bottom: calc(22px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 10px; }
-  #puntos button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; background: rgba(255, 255, 255, .28); transition: all .3s; }
-  #puntos button.activo { width: 26px; background: #fff; }
 
   /* Ventanas de información (viaje y clima) */
   .info { justify-content: center; gap: 28px; }
@@ -101,25 +148,78 @@
   .lugar .desc { font-size: 17px; }
   .lugar .extra { color: var(--suave); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 
-  @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; } }
+  /* ---- Modo noche: pantalla negra con un reloj tenue ---- */
+  #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; color: rgba(255, 255, 255, .32); cursor: pointer; }
+  #noche .hora { font-size: 112px; font-weight: 200; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  #noche .fecha { margin-top: 10px; font-size: 18px; }
+  #noche .salida { margin-top: 36px; font-size: 16px; color: rgba(255, 255, 255, .22); }
+  #noche .pista { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); font-size: 13px; color: rgba(255, 255, 255, .14); }
+
+  @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; }
+                               .reloj .hora { font-size: 56px; } .mosaico { min-height: 112px; } }
 </style>
 </head>
 <body>
 <div id="ambiente"></div>
-<div id="carrusel"></div>
-<div id="puntos"></div>
+
+<main id="inicio">
+  <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
+  <section class="bloque"><h2>Escenas</h2><div class="escenas" id="escenas"></div></section>
+  <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
+  <section class="bloque"><h2>Hoy</h2>
+    <div class="grilla">
+      <button class="mosaico" id="m-viaje">
+        <div class="m-icono">🚗</div>
+        <div><div class="m-grande">--:--</div><div class="m-sub">Salir al trabajo</div></div>
+      </button>
+      <button class="mosaico m-clima" id="m-clima">
+        <div class="m-icono">🌡️</div>
+        <div class="filas"></div>
+      </button>
+      <button class="mosaico ancho" id="m-noche">
+        <div class="m-icono">🌙</div>
+        <div><div class="m-titulo" style="margin:0">Modo noche</div><div class="m-sub">Apaga la pantalla y deja un reloj tenue</div></div>
+      </button>
+    </div>
+  </section>
+</main>
+
+<div id="detalle" class="oculta">
+  <button id="volver"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Inicio</button>
+</div>
+
+<div id="noche" class="oculta">
+  <div class="hora"></div><div class="fecha"></div><div class="salida"></div>
+  <div class="pista">Tocá la pantalla para volver</div>
+</div>
 
 <script>
-const carrusel = document.getElementById('carrusel');
-const puntos = document.getElementById('puntos');
+const inicio = document.getElementById('inicio');
+const detalle = document.getElementById('detalle');
 const ambiente = document.getElementById('ambiente');
-const tarjetas = {};      // id -> elemento
+const grillaLuces = document.getElementById('grilla-luces');
+const tarjetas = {};      // id -> pantalla de la luz
+const mosaicos = {};      // id -> mosaico de la luz en el inicio
 const tocado = {};        // id -> instante del último toque (para no pisar lo que estás moviendo)
 const pendiente = {};     // id -> cambios acumulados por enviar
 const temporizador = {};
 
 const ICONO = '<svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>';
+const FOCO = '<svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg>';
 const PRESETS = [['Cálido', 0, '#ffb86b'], ['Neutro', 50, '#fff1dc'], ['Frío', 100, '#cfe3ff']];
+
+// Escenas: se aplican a todas las luces a la vez
+const ESCENAS = [
+  ['Apagar', '🌑', { encendida: false }],
+  ['Prender', '💡', { encendida: true, blanco: 50, brillo: 100 }],
+  ['Relax', '🛋️', { encendida: true, blanco: 0, brillo: 45 }],
+  ['Tenue', '🕯️', { encendida: true, blanco: 0, brillo: 8 }],
+  ['Cine', '🎬', { encendida: true, color: '#5b3cff', brillo: 25 }],
+];
+
+// Modo noche automático: entre estas horas el panel pasa solo al reloj tenue
+const NOCHE_DESDE = '23:00', NOCHE_HASTA = '06:30';
 
 // ---- color ----
 function hexAHue(hex) {
@@ -147,12 +247,44 @@ function enviar(id, cambios, ya) {
       if (r.ok && !tocadoReciente(id)) pintar(await r.json());
     } catch (e) {}
   };
-  if (ya) return mandar();
+  if (ya) { clearTimeout(temporizador[id]); return mandar(); }
   temporizador[id] = setTimeout(mandar, 140);
 }
 const tocadoReciente = id => Date.now() - (tocado[id] || 0) < 2500;
 
-// ---- tarjetas ----
+// ---- navegación: inicio <-> detalle ----
+let abierta = null;
+if (history.state) history.replaceState(null, '');   // al recargar se arranca siempre en el inicio
+function abrir(s) {
+  detalle.querySelectorAll('.luz.activa').forEach(x => x.classList.remove('activa'));
+  s.classList.add('activa');
+  abierta = s;
+  detalle.classList.remove('oculta');
+  inicio.classList.add('oculta');
+  if (!history.state) history.pushState({ detalle: true }, '');
+  pintarAmbiente();
+}
+function cerrar() {
+  if (!abierta) return;
+  abierta.classList.remove('activa');
+  abierta = null;
+  detalle.classList.add('oculta');
+  inicio.classList.remove('oculta');
+  pintarAmbiente();
+}
+document.getElementById('volver').onclick = () => history.state ? history.back() : cerrar();
+addEventListener('popstate', cerrar);   // botón "atrás" de Android
+addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('volver').click(); });
+
+function pintarAmbiente() {
+  const s = abierta;
+  let c = '#1a1f2b';
+  if (s && s.dataset.ambiente) c = s.dataset.ambiente;
+  else if (s && s.classList.contains('on')) c = s.style.getPropertyValue('--color') || c;
+  ambiente.style.setProperty('--ambiente', c);
+}
+
+// ---- pantalla de cada luz ----
 function crear(l) {
   const s = document.createElement('section');
   s.className = 'luz';
@@ -168,12 +300,13 @@ function crear(l) {
     </div>`;
   s.querySelector('.nombre').textContent = l.nombre;
 
-  s.querySelector('.power').onclick = () => {
+  const alternar = () => {
     const encender = !s.classList.contains('on');
     s.classList.toggle('on', encender);               // respuesta inmediata
     textoEstado(s);
     enviar(l.id, { encendida: encender }, true);
   };
+  s.querySelector('.power').onclick = alternar;
   const brillo = s.querySelector('.brillo'), tono = s.querySelector('.tono');
   brillo.oninput = () => { marcarBrillo(s, +brillo.value); enviar(l.id, { brillo: +brillo.value }); };
   tono.oninput = () => {
@@ -190,35 +323,46 @@ function crear(l) {
     textoEstado(s);
     enviar(l.id, { blanco: t, brillo: +brillo.value }, true);
   });
+  detalle.appendChild(s);
 
-  agregarPagina(s, l.nombre, carrusel.querySelector('.info'));   // las luces van antes de las ventanas de información
+  // Mosaico en el inicio: tocarlo abre la luz, el botón de la esquina la prende o apaga
+  const m = document.createElement('div');
+  m.className = 'mosaico m-luz';
+  m.innerHTML = `<button class="abrir" aria-label="Abrir ${l.nombre}"></button>
+    <div class="m-icono">${FOCO}</div>
+    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
+    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
+  m.querySelector('.m-titulo').textContent = l.nombre;
+  m.querySelector('.abrir').onclick = () => abrir(s);
+  m.querySelector('.m-power').onclick = alternar;
+  grillaLuces.appendChild(m);
+  mosaicos[l.id] = m;
+  s.dataset.id = l.id;
   return tarjetas[l.id] = s;
-}
-
-function agregarPagina(s, nombre, antesDe) {
-  const i = antesDe ? [...carrusel.children].indexOf(antesDe) : -1;
-  carrusel.insertBefore(s, antesDe || null);
-  const p = document.createElement('button');
-  p.setAttribute('aria-label', nombre);
-  p.onclick = () => s.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-  puntos.insertBefore(p, i >= 0 ? puntos.children[i] : null);
 }
 
 function textoEstado(s) {
   s.querySelector('.estado').textContent = s.classList.contains('offline') ? 'Sin conexión'
     : s.classList.contains('on') ? 'Encendida' : 'Apagada';
-  ambienteDe(s);
+  pintarMosaico(s);
+  if (s === abierta) pintarAmbiente();
 }
 function marcarBrillo(s, v) {
   s.querySelector('.brillo').style.setProperty('--p', v + '%');
   s.querySelector('.pct').textContent = v + '%';
+  pintarMosaico(s);
 }
-function ambienteDe(s) {
-  if (s !== visible()) return;
-  const encendida = s.classList.contains('on');
-  ambiente.style.setProperty('--ambiente', encendida ? (s.style.getPropertyValue('--color') || '#1a1f2b') : '#1a1f2b');
+function fijarColor(s, c) { s.style.setProperty('--color', c); pintarMosaico(s); if (s === abierta) pintarAmbiente(); }
+
+function pintarMosaico(s) {
+  const m = mosaicos[s.dataset.id];
+  if (!m) return;
+  const on = s.classList.contains('on'), off = s.classList.contains('offline');
+  m.classList.toggle('on', on && !off);
+  m.classList.toggle('offline', off);
+  m.style.setProperty('--color', s.style.getPropertyValue('--color') || '#ffb347');
+  m.querySelector('.m-sub').textContent = off ? 'Sin conexión' : on ? `Prendida · ${s.querySelector('.brillo').value}%` : 'Apagada';
 }
-function fijarColor(s, c) { s.style.setProperty('--color', c); ambienteDe(s); }
 
 function pintar(l) {
   const s = tarjetas[l.id] || crear(l);
@@ -226,34 +370,50 @@ function pintar(l) {
   if (!l.online) return textoEstado(s);
   if (tocadoReciente(l.id)) return;
   s.classList.toggle('on', l.encendida);
-  textoEstado(s);
   fijarColor(s, l.color);
   s.querySelector('.brillo').value = l.brillo;
   marcarBrillo(s, l.brillo);
   s.querySelector('.tono').value = hexAHue(l.color);
+  textoEstado(s);
 }
-
-// ---- carrusel ----
-function visible() { return carrusel.children[Math.round(carrusel.scrollLeft / carrusel.clientWidth)]; }
-function actualizarPagina() {
-  const i = Math.round(carrusel.scrollLeft / carrusel.clientWidth);
-  [...puntos.children].forEach((p, n) => p.classList.toggle('activo', n === i));
-  const s = carrusel.children[i];
-  if (s && s.classList.contains('info')) ambiente.style.setProperty('--ambiente', s.dataset.ambiente);
-  else if (s) ambienteDe(s);
-  puntos.style.display = carrusel.children.length > 1 ? 'flex' : 'none';
-}
-carrusel.addEventListener('scroll', actualizarPagina, { passive: true });
-addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') carrusel.scrollBy({ left: carrusel.clientWidth, behavior: 'smooth' });
-  if (e.key === 'ArrowLeft') carrusel.scrollBy({ left: -carrusel.clientWidth, behavior: 'smooth' });
-});
 
 async function refrescar() {
-  try { (await (await fetch('/api/luces')).json()).forEach(pintar); actualizarPagina(); } catch (e) {}
+  try { (await (await fetch('/api/luces')).json()).forEach(pintar); } catch (e) {}
 }
 refrescar();
 setInterval(refrescar, 4000);
+
+// ---- escenas ----
+function aplicarEscena(cambios) {
+  for (const s of Object.values(tarjetas)) {
+    if (s.classList.contains('offline')) continue;
+    s.classList.toggle('on', cambios.encendida);          // respuesta inmediata en la pantalla
+    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+    textoEstado(s);
+    enviar(s.dataset.id, cambios, true);
+  }
+}
+const escenas = document.getElementById('escenas');
+for (const [nombre, icono, cambios] of ESCENAS) {
+  const b = document.createElement('button');
+  b.className = 'escena';
+  b.innerHTML = `<span>${icono}</span>${nombre}`;
+  b.onclick = () => { aplicarEscena(cambios); b.classList.add('tocada'); setTimeout(() => b.classList.remove('tocada'), 300); };
+  escenas.appendChild(b);
+}
+
+// ---- reloj ----
+const hora = d => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+const fecha = d => d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+function pintarReloj() {
+  const ahora = new Date();
+  document.querySelectorAll('.hora').forEach(e => e.textContent = hora(ahora));
+  document.querySelectorAll('.fecha').forEach(e => e.textContent = fecha(ahora).replace(/^./, c => c.toUpperCase()));
+}
+pintarReloj();
+setInterval(pintarReloj, 5000);
 
 // ---- ventana: a qué hora salir al trabajo ----
 const viaje = document.createElement('section');
@@ -264,18 +424,19 @@ viaje.innerHTML = `
   <div><div class="grande">--:--</div><div class="sub"></div></div>
   <div class="datos"></div>
   <div class="aviso"></div>`;
-agregarPagina(viaje, 'Salir al trabajo');
+detalle.appendChild(viaje);
+document.getElementById('m-viaje').onclick = () => abrir(viaje);
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const hora = d => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 let datosViaje = null;
 
 function pintarViaje() {
-  const v = datosViaje, $ = q => viaje.querySelector(q);
+  const v = datosViaje, $ = q => viaje.querySelector(q), mv = document.getElementById('m-viaje');
   if (!v) return;
   if (!v.ok) {
     $('.grande').textContent = '--:--'; $('.sub').textContent = ''; $('.datos').innerHTML = '';
     $('.estado').textContent = ''; $('.aviso').textContent = v.error;
+    mv.querySelector('.m-grande').textContent = '--:--';
     return;
   }
   const salida = new Date(v.salida), llegada = new Date(v.llegada), ahora = new Date();
@@ -285,13 +446,17 @@ function pintarViaje() {
   $('.estado').textContent = `Para llegar ${cuando} a las ${hora(llegada)}`;
   $('.grande').textContent = hora(salida);
   const faltan = Math.round((salida - ahora) / 60000);
-  $('.sub').textContent = faltan < 0 ? `Ya tendrías que haber salido (hace ${-faltan} min)`
+  const sub = faltan < 0 ? `Ya tendrías que haber salido (hace ${-faltan} min)`
     : faltan <= 90 ? `Salí en ${faltan} min` : 'Hora de salida';
+  $('.sub').textContent = sub;
   $('.datos').innerHTML = `
     <div class="dato"><b>${v.minutos} min</b><span>de viaje</span></div>
     <div class="dato"><b>${v.demora ? '+' + v.demora : '0'} min</b><span>por tráfico</span></div>
     <div class="dato"><b>${String(v.km).replace('.', ',')} km</b><span>distancia</span></div>`;
   $('.aviso').textContent = 'Con el tráfico en vivo de TomTom';
+  mv.querySelector('.m-grande').textContent = hora(salida);
+  mv.querySelector('.m-sub').textContent = faltan >= 0 && faltan <= 90 ? sub : `Salir ${cuando} · ${v.minutos} min`;
+  document.querySelector('#noche .salida').textContent = `Salir ${cuando} a las ${hora(salida)}`;
 }
 async function refrescarViaje() {
   try { datosViaje = await (await fetch('/api/viaje')).json(); } catch (e) {}
@@ -307,7 +472,8 @@ clima.className = 'luz info clima';
 clima.dataset.ambiente = '#173041';
 clima.innerHTML = `<div class="cabecera"><h1 class="nombre">Clima</h1></div>
   <div class="lugar" data-l="casa"></div><div class="lugar" data-l="trabajo"></div>`;
-agregarPagina(clima, 'Clima');
+detalle.appendChild(clima);
+document.getElementById('m-clima').onclick = () => abrir(clima);
 
 // Códigos del tiempo de Open-Meteo (WMO): [códigos, descripción, ícono de día, ícono de noche]
 const TIEMPO = [[[0], 'Despejado', '☀️', '🌙'], [[1], 'Mayormente despejado', '🌤️', '🌙'], [[2], 'Parcialmente nublado', '⛅', '☁️'],
@@ -319,24 +485,54 @@ const grados = n => Math.round(n) + '°';
 async function refrescarClima() {
   let d;
   try { d = await (await fetch('/api/clima')).json(); } catch (e) { return; }
+  const filas = [];
   for (const clave of ['casa', 'trabajo']) {
     const c = d[clave], caja = clima.querySelector(`[data-l="${clave}"]`);
     if (!c) continue;
     if (!c.ok) {
       caja.innerHTML = `<div class="arriba"><span>${c.nombre}</span></div><div class="extra"></div>`;
       caja.querySelector('.extra').textContent = 'Sin datos: ' + c.error;
+      filas.push(`<div class="fila"><b>--</b><span>${c.nombre}</span></div>`);
       continue;
     }
     const t = TIEMPO.find(x => x[0].includes(c.codigo)) || [[], 'Variable', '🌡️', '🌡️'];
+    const icono = c.dia ? t[2] : t[3];
     caja.innerHTML = `
       <div class="arriba"><span>${c.nombre}</span><span>${grados(c.min)} / ${grados(c.max)}</span></div>
-      <div class="medio"><span class="icono">${c.dia ? t[2] : t[3]}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${t[1]}</span></div>
+      <div class="medio"><span class="icono">${icono}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${t[1]}</span></div>
       <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia ${c.lluvia ?? 0}%</span>
         <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
+    filas.push(`<div class="fila"><span>${icono}</span><b>${grados(c.temp)}</b><span>${c.nombre}</span></div>`);
   }
+  const mc = document.getElementById('m-clima');
+  mc.querySelector('.filas').innerHTML = filas.join('');
+  mc.querySelector('.m-icono').classList.add('oculta');
 }
 refrescarClima();
 setInterval(refrescarClima, 10 * 60000);
+
+// ---- modo noche ----
+const noche = document.getElementById('noche');
+let nocheManual = false, ultimoToque = Date.now();
+const enMinutos = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+function esHorarioNoche() {
+  const d = new Date(), m = d.getHours() * 60 + d.getMinutes(), desde = enMinutos(NOCHE_DESDE), hasta = enMinutos(NOCHE_HASTA);
+  return desde > hasta ? m >= desde || m < hasta : m >= desde && m < hasta;
+}
+function revisarNoche() {
+  // De noche vuelve sola al reloj tenue si nadie tocó la pantalla en 2 minutos
+  const mostrar = nocheManual || (esHorarioNoche() && Date.now() - ultimoToque > 2 * 60000);
+  noche.classList.toggle('oculta', !mostrar);
+}
+document.getElementById('m-noche').onclick = () => { nocheManual = true; revisarNoche(); };
+noche.onclick = () => { nocheManual = false; ultimoToque = Date.now(); revisarNoche(); };
+setInterval(revisarNoche, 15000);
+
+// Si nadie toca la pantalla por un rato, vuelve sola al inicio
+addEventListener('pointerdown', () => { ultimoToque = Date.now(); }, true);
+setInterval(() => {
+  if (abierta && Date.now() - ultimoToque > 2 * 60000) history.state ? history.back() : cerrar();
+}, 10000);
 
 // ---- que la pantalla no se apague (si el navegador lo permite) ----
 let candado = null;
