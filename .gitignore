@@ -1,0 +1,7 @@
+devices.json
+snapshot.json
+tuya-raw.json
+tinytuya.json
+panel-luces-celular.zip
+.claude/
+__pycache__/

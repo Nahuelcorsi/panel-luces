@@ -1,0 +1,16 @@
+[
+    {
+        "name": "Habitacion",
+        "id": "ID_DE_LA_LUZ",
+        "key": "CLAVE_LOCAL_DE_LA_LUZ",
+        "ip": "192.168.0.10",
+        "version": "3.5"
+    },
+    {
+        "name": "Lampara",
+        "id": "OTRO_ID",
+        "key": "OTRA_CLAVE_LOCAL",
+        "ip": "192.168.0.11",
+        "version": "3.5"
+    }
+]
