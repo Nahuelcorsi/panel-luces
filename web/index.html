@@ -83,6 +83,24 @@
   #puntos button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; background: rgba(255, 255, 255, .28); transition: all .3s; }
   #puntos button.activo { width: 26px; background: #fff; }
 
+  /* Ventanas de información (viaje y clima) */
+  .info { justify-content: center; gap: 28px; }
+  .grande { font-size: 84px; font-weight: 700; letter-spacing: -.04em; line-height: 1; text-align: center; font-variant-numeric: tabular-nums; }
+  .sub { margin-top: 8px; text-align: center; color: var(--suave); font-size: 16px; }
+  .datos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .dato { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 12px 6px; text-align: center; }
+  .dato b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .dato span { color: var(--suave); font-size: 13px; }
+  .aviso { text-align: center; color: var(--suave); font-size: 15px; }
+  .info.clima { justify-content: space-evenly; gap: 16px; }
+  .lugar { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 24px; padding: 18px 20px; }
+  .lugar .arriba { display: flex; justify-content: space-between; align-items: baseline; color: var(--suave); font-size: 15px; }
+  .lugar .medio { display: flex; align-items: center; gap: 14px; margin: 6px 0 8px; }
+  .lugar .icono { font-size: 52px; line-height: 1; }
+  .lugar .temp { font-size: 56px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .lugar .desc { font-size: 17px; }
+  .lugar .extra { color: var(--suave); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
   @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; } }
 </style>
 </head>
@@ -96,7 +114,6 @@ const carrusel = document.getElementById('carrusel');
 const puntos = document.getElementById('puntos');
 const ambiente = document.getElementById('ambiente');
 const tarjetas = {};      // id -> elemento
-const orden = [];         // ids en orden de aparición
 const tocado = {};        // id -> instante del último toque (para no pisar lo que estás moviendo)
 const pendiente = {};     // id -> cambios acumulados por enviar
 const temporizador = {};
@@ -174,13 +191,17 @@ function crear(l) {
     enviar(l.id, { blanco: t, brillo: +brillo.value }, true);
   });
 
-  carrusel.appendChild(s);
-  const p = document.createElement('button');
-  p.setAttribute('aria-label', l.nombre);
-  p.onclick = () => s.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-  puntos.appendChild(p);
-  orden.push(l.id);
+  agregarPagina(s, l.nombre, carrusel.querySelector('.info'));   // las luces van antes de las ventanas de información
   return tarjetas[l.id] = s;
+}
+
+function agregarPagina(s, nombre, antesDe) {
+  const i = antesDe ? [...carrusel.children].indexOf(antesDe) : -1;
+  carrusel.insertBefore(s, antesDe || null);
+  const p = document.createElement('button');
+  p.setAttribute('aria-label', nombre);
+  p.onclick = () => s.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+  puntos.insertBefore(p, i >= 0 ? puntos.children[i] : null);
 }
 
 function textoEstado(s) {
@@ -213,12 +234,14 @@ function pintar(l) {
 }
 
 // ---- carrusel ----
-function visible() { return tarjetas[orden[Math.round(carrusel.scrollLeft / carrusel.clientWidth)]]; }
+function visible() { return carrusel.children[Math.round(carrusel.scrollLeft / carrusel.clientWidth)]; }
 function actualizarPagina() {
   const i = Math.round(carrusel.scrollLeft / carrusel.clientWidth);
   [...puntos.children].forEach((p, n) => p.classList.toggle('activo', n === i));
-  if (tarjetas[orden[i]]) ambienteDe(tarjetas[orden[i]]);
-  puntos.style.display = orden.length > 1 ? 'flex' : 'none';
+  const s = carrusel.children[i];
+  if (s && s.classList.contains('info')) ambiente.style.setProperty('--ambiente', s.dataset.ambiente);
+  else if (s) ambienteDe(s);
+  puntos.style.display = carrusel.children.length > 1 ? 'flex' : 'none';
 }
 carrusel.addEventListener('scroll', actualizarPagina, { passive: true });
 addEventListener('keydown', e => {
@@ -231,6 +254,89 @@ async function refrescar() {
 }
 refrescar();
 setInterval(refrescar, 4000);
+
+// ---- ventana: a qué hora salir al trabajo ----
+const viaje = document.createElement('section');
+viaje.className = 'luz info';
+viaje.dataset.ambiente = '#1d2a44';
+viaje.innerHTML = `
+  <div class="cabecera"><h1 class="nombre">Salir al trabajo</h1><div class="estado"></div></div>
+  <div><div class="grande">--:--</div><div class="sub"></div></div>
+  <div class="datos"></div>
+  <div class="aviso"></div>`;
+agregarPagina(viaje, 'Salir al trabajo');
+
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const hora = d => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+let datosViaje = null;
+
+function pintarViaje() {
+  const v = datosViaje, $ = q => viaje.querySelector(q);
+  if (!v) return;
+  if (!v.ok) {
+    $('.grande').textContent = '--:--'; $('.sub').textContent = ''; $('.datos').innerHTML = '';
+    $('.estado').textContent = ''; $('.aviso').textContent = v.error;
+    return;
+  }
+  const salida = new Date(v.salida), llegada = new Date(v.llegada), ahora = new Date();
+  const manana = new Date(ahora.getTime() + 864e5);
+  const cuando = llegada.toDateString() === ahora.toDateString() ? 'hoy'
+    : llegada.toDateString() === manana.toDateString() ? 'mañana' : 'el ' + DIAS[llegada.getDay()];
+  $('.estado').textContent = `Para llegar ${cuando} a las ${hora(llegada)}`;
+  $('.grande').textContent = hora(salida);
+  const faltan = Math.round((salida - ahora) / 60000);
+  $('.sub').textContent = faltan < 0 ? `Ya tendrías que haber salido (hace ${-faltan} min)`
+    : faltan <= 90 ? `Salí en ${faltan} min` : 'Hora de salida';
+  $('.datos').innerHTML = `
+    <div class="dato"><b>${v.minutos} min</b><span>de viaje</span></div>
+    <div class="dato"><b>${v.demora ? '+' + v.demora : '0'} min</b><span>por tráfico</span></div>
+    <div class="dato"><b>${String(v.km).replace('.', ',')} km</b><span>distancia</span></div>`;
+  $('.aviso').textContent = 'Con el tráfico en vivo de TomTom';
+}
+async function refrescarViaje() {
+  try { datosViaje = await (await fetch('/api/viaje')).json(); } catch (e) {}
+  pintarViaje();
+}
+refrescarViaje();
+setInterval(refrescarViaje, 2 * 60000);
+setInterval(pintarViaje, 30000);   // para que "Salí en X min" avance solo
+
+// ---- ventana: clima en casa y en el trabajo ----
+const clima = document.createElement('section');
+clima.className = 'luz info clima';
+clima.dataset.ambiente = '#173041';
+clima.innerHTML = `<div class="cabecera"><h1 class="nombre">Clima</h1></div>
+  <div class="lugar" data-l="casa"></div><div class="lugar" data-l="trabajo"></div>`;
+agregarPagina(clima, 'Clima');
+
+// Códigos del tiempo de Open-Meteo (WMO): [códigos, descripción, ícono de día, ícono de noche]
+const TIEMPO = [[[0], 'Despejado', '☀️', '🌙'], [[1], 'Mayormente despejado', '🌤️', '🌙'], [[2], 'Parcialmente nublado', '⛅', '☁️'],
+  [[3], 'Nublado', '☁️', '☁️'], [[45, 48], 'Niebla', '🌫️', '🌫️'], [[51, 53, 55, 56, 57], 'Llovizna', '🌦️', '🌧️'],
+  [[61, 63, 66, 80, 81], 'Lluvia', '🌧️', '🌧️'], [[65, 67, 82], 'Lluvia fuerte', '🌧️', '🌧️'],
+  [[71, 73, 75, 77, 85, 86], 'Nieve', '🌨️', '🌨️'], [[95, 96, 99], 'Tormenta', '⛈️', '⛈️']];
+const grados = n => Math.round(n) + '°';
+
+async function refrescarClima() {
+  let d;
+  try { d = await (await fetch('/api/clima')).json(); } catch (e) { return; }
+  for (const clave of ['casa', 'trabajo']) {
+    const c = d[clave], caja = clima.querySelector(`[data-l="${clave}"]`);
+    if (!c) continue;
+    if (!c.ok) {
+      caja.innerHTML = `<div class="arriba"><span>${c.nombre}</span></div><div class="extra"></div>`;
+      caja.querySelector('.extra').textContent = 'Sin datos: ' + c.error;
+      continue;
+    }
+    const t = TIEMPO.find(x => x[0].includes(c.codigo)) || [[], 'Variable', '🌡️', '🌡️'];
+    caja.innerHTML = `
+      <div class="arriba"><span>${c.nombre}</span><span>${grados(c.min)} / ${grados(c.max)}</span></div>
+      <div class="medio"><span class="icono">${c.dia ? t[2] : t[3]}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${t[1]}</span></div>
+      <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia ${c.lluvia ?? 0}%</span>
+        <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
+  }
+}
+refrescarClima();
+setInterval(refrescarClima, 10 * 60000);
 
 // ---- que la pantalla no se apague (si el navegador lo permite) ----
 let candado = null;

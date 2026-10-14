@@ -7,9 +7,13 @@ Uso:
 import colorsys
 import json
 import os
+import ssl
 import sys
 import threading
 import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -127,6 +131,138 @@ def cargar_luces():
 LUCES = {}
 
 
+# ---- Viaje al trabajo y clima ----
+# lugares.json: direcciones de casa y trabajo, hora de llegada y clave de TomTom (ver lugares.example.json).
+
+def cargar_lugares():
+    ruta = os.path.join(BASE, "lugares.json")
+    if not os.path.exists(ruta):
+        return {}
+    with open(ruta, encoding="utf-8") as f:
+        return json.load(f)
+
+
+try:
+    # En Windows al almacén de certificados de Python le pueden faltar raíces (como la de TomTom); certifi las trae todas.
+    import certifi
+    SSL = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL = ssl.create_default_context()
+
+
+def pedir_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "panel-luces/1.0 (panel casero)"})
+    with urllib.request.urlopen(req, timeout=10, context=SSL) as r:
+        return json.load(r)
+
+
+class Cache:
+    """Guarda el último resultado de una función durante unos segundos."""
+
+    def __init__(self, segundos, funcion):
+        self.segundos, self.funcion = segundos, funcion
+        self.lock = threading.Lock()
+        self.valor, self.cuando = None, 0
+
+    def obtener(self):
+        with self.lock:
+            vigencia = 30 if isinstance(self.valor, dict) and self.valor.get("ok") is False else self.segundos
+            if self.valor is None or time.time() - self.cuando > vigencia:
+                self.valor, self.cuando = self.funcion(), time.time()
+            return self.valor
+
+
+COORDENADAS = {}
+
+
+def coordenadas(lugar):
+    """Lat/lon del lugar: las del archivo si están, si no busca la dirección en OpenStreetMap (una sola vez)."""
+    if lugar.get("lat") is not None and lugar.get("lon") is not None:
+        return float(lugar["lat"]), float(lugar["lon"])
+    direccion = (lugar.get("direccion") or "").strip()
+    if not direccion:
+        raise ValueError("falta la dirección")
+    if direccion not in COORDENADAS:
+        r = pedir_json("https://nominatim.openstreetmap.org/search?format=json&limit=1&q="
+                       + urllib.parse.quote(direccion))
+        if not r:
+            raise ValueError(f"no encontré la dirección «{direccion}»")
+        COORDENADAS[direccion] = (float(r[0]["lat"]), float(r[0]["lon"]))
+    return COORDENADAS[direccion]
+
+
+def proxima_llegada(cfg, ahora):
+    """Próximo día laboral (lunes a sábado por defecto) a la hora de llegada que todavía no pasó."""
+    h, m = (int(x) for x in cfg.get("llegada", "08:00").split(":"))
+    dias = cfg.get("dias_laborales", [1, 2, 3, 4, 5, 6])  # 1 = lunes … 7 = domingo
+    for n in range(8):
+        dia = (ahora + timedelta(days=n)).replace(hour=h, minute=m, second=0, microsecond=0)
+        if dia.isoweekday() in dias and dia > ahora:
+            return dia
+    raise ValueError("no hay días laborales configurados")
+
+
+def calcular_viaje():
+    cfg = cargar_lugares()
+    ahora = datetime.now().astimezone()
+    if DEMO:
+        llegada = proxima_llegada(cfg, ahora)
+        return {"ok": True, "llegada": llegada.isoformat(), "salida": (llegada - timedelta(minutes=47)).isoformat(),
+                "minutos": 47, "demora": 9, "km": 31.4}
+    clave = (cfg.get("tomtom_key") or "").strip()
+    if not cfg.get("casa") or not cfg.get("trabajo"):
+        return {"ok": False, "error": "Falta configurar las direcciones en lugares.json"}
+    if not clave:
+        return {"ok": False, "error": "Falta la clave de TomTom en lugares.json"}
+    try:
+        (la1, lo1), (la2, lo2) = coordenadas(cfg["casa"]), coordenadas(cfg["trabajo"])
+        llegada = proxima_llegada(cfg, ahora)
+        # Con arriveAt, TomTom calcula a qué hora salir; cerca de la salida usa el tráfico en vivo.
+        url = (f"https://api.tomtom.com/routing/1/calculateRoute/{la1},{lo1}:{la2},{lo2}/json"
+               f"?key={urllib.parse.quote(clave)}&traffic=true&travelMode=car"
+               f"&arriveAt={urllib.parse.quote(llegada.isoformat(timespec='seconds'))}")
+        resumen = pedir_json(url)["routes"][0]["summary"]
+        return {"ok": True, "llegada": llegada.isoformat(), "salida": resumen["departureTime"],
+                "minutos": round(resumen["travelTimeInSeconds"] / 60),
+                "demora": round(resumen.get("trafficDelayInSeconds", 0) / 60),
+                "km": round(resumen["lengthInMeters"] / 1000, 1)}
+    except Exception as e:
+        return {"ok": False, "error": f"No pude calcular el viaje: {e}"}
+
+
+def clima_de(lugar):
+    la, lo = coordenadas(lugar)
+    d = pedir_json(
+        f"https://api.open-meteo.com/v1/forecast?latitude={la}&longitude={lo}&timezone=auto&forecast_days=1"
+        "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day"
+        "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max")
+    c, dia = d["current"], d["daily"]
+    return {"temp": c["temperature_2m"], "sensacion": c["apparent_temperature"], "humedad": c["relative_humidity_2m"],
+            "codigo": c["weather_code"], "viento": c["wind_speed_10m"], "dia": bool(c["is_day"]),
+            "max": dia["temperature_2m_max"][0], "min": dia["temperature_2m_min"][0],
+            "lluvia": dia["precipitation_probability_max"][0]}
+
+
+def calcular_clima():
+    cfg = cargar_lugares()
+    salida = {}
+    for clave, nombre in (("casa", "Casa"), ("trabajo", "Trabajo")):
+        if DEMO:
+            salida[clave] = {"nombre": nombre, "ok": True, "temp": 18.4 if clave == "casa" else 20.1, "sensacion": 17.2,
+                             "humedad": 64, "codigo": 2 if clave == "casa" else 61, "viento": 12, "dia": True,
+                             "max": 22, "min": 11, "lluvia": 10 if clave == "casa" else 70}
+            continue
+        try:
+            salida[clave] = {"nombre": nombre, "ok": True, **clima_de(cfg.get(clave) or {})}
+        except Exception as e:
+            salida[clave] = {"nombre": nombre, "ok": False, "error": str(e)}
+    return salida
+
+
+VIAJE = Cache(5 * 60, calcular_viaje)
+CLIMA = Cache(10 * 60, calcular_clima)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, datos, codigo=200):
         cuerpo = json.dumps(datos).encode()
@@ -139,6 +275,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/luces":
             return self._json([l.estado() for l in LUCES.values()])
+        if self.path == "/api/viaje":
+            return self._json(VIAJE.obtener())
+        if self.path == "/api/clima":
+            return self._json(CLIMA.obtener())
         self._estatico()
 
     def _estatico(self):
