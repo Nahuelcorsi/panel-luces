@@ -1,21 +1,33 @@
 # panel-luces
 
-Panel web táctil para controlar luces **Tuya / Smart Life** por la red local, sin la app oficial y sin pasar por la nube. Pensado para correr en un celular Android viejo (con Termux) y dejarlo como panel fijo en la pared.
+Panel web táctil para la casa: controla luces **Tuya / Smart Life** por la red local (sin la app oficial y sin pasar por la nube), dice a qué hora salir al trabajo según el tráfico y muestra el clima. Pensado para correr en un celular Android viejo (con Termux) y dejarlo como panel fijo en la pared.
 
 <p align="center">
+  <img src="docs/panel-6.png" width="230" alt="Pantalla de inicio con escenas, luces, viaje y clima">
   <img src="docs/panel-1.png" width="230" alt="Luz en blanco cálido">
-  <img src="docs/panel-2.png" width="230" alt="Luz en violeta">
-  <img src="docs/panel-3.png" width="230" alt="Luz en celeste">
+  <img src="docs/panel-7.png" width="230" alt="Modo noche">
 </p>
 
 ## Qué hace
-- **Una luz por pantalla**: se desliza el dedo para cambiar de luz.
-- Botón de encendido grande que brilla con el color de la luz.
-- Brillo, color (arcoíris) y tres blancos (cálido, neutro, frío).
+- **Pantalla de inicio con mosaicos**: reloj grande, escenas, una tarjeta por luz y tarjetas de viaje y clima. Tocar una tarjeta abre su pantalla completa; "Inicio" (o el botón atrás de Android) vuelve. Si nadie toca nada por 2 minutos, vuelve sola al inicio.
+- **Escenas** para todas las luces juntas: Apagar, Prender, Relax, Tenue y Cine (se cambian en `ESCENAS`, dentro de `web/index.html`).
+- **Tarjeta de cada luz**: se tiñe con el color de la luz cuando está prendida; el botón de la esquina la prende o apaga sin entrar.
+- **Pantalla de cada luz**: botón de encendido grande que brilla con el color de la luz, brillo, color (arcoíris) y tres blancos (cálido, neutro, frío).
+- **Modo noche**: pantalla negra con un reloj tenue y la hora de salida de mañana. Se activa desde su tarjeta o solo entre las 23:00 y las 6:30 si nadie toca la pantalla por 2 minutos (horario en `NOCHE_DESDE` / `NOCHE_HASTA`). Tocar la pantalla lo cierra.
+- **Despertador**: las luces elegidas se prenden de a poco simulando un amanecer (de rojizo tenue a blanco cálido fuerte). Se eligen la hora, los días, las luces y cuántos minutos antes empieza.
+- **Modo trabajo**: antes de la hora de salir, las luces elegidas pasan de verde a amarillo y a rojo; a la hora exacta parpadean 4 veces y quedan rojas.
+- El despertador y el modo trabajo los ejecuta el servidor, así funcionan con la pantalla apagada. Se guardan en `ajustes.json` y cada uno tiene un botón "Probar" con una versión rápida.
+- **Hablarle al panel**: botón de micrófono con comandos en español ("prendé la lámpara", "apagá todo", "escena cine", "brillo al 50", "luz azul", "¿a qué hora salgo?", "¿cómo está el clima?", "despertador a las 6 y media", "modo noche"). Usa el reconocimiento de voz de Chrome, que necesita internet.
+- **A qué hora salir** para llegar al trabajo (por defecto a las 8:00, de lunes a sábado) según el tráfico en vivo, y el **clima** en casa y en el trabajo.
 - Se instala como app a pantalla completa y pide que la pantalla no se apague.
 - Si una luz no responde, la muestra "Sin conexión" y sigue reintentando.
-- Después de las luces, una ventana con **a qué hora salir** para llegar al trabajo (por defecto a las 8:00, de lunes a sábado) según el tráfico en vivo, y otra con el **clima** en casa y en el trabajo.
-- Modo `--demo` con luces simuladas, para probarlo sin hardware.
+- Modo `--demo` con luces y datos simulados, para probarlo sin hardware.
+
+## Rutinas
+<p align="center">
+  <img src="docs/panel-8.png" width="230" alt="Ajustes del despertador">
+  <img src="docs/panel-9.png" width="230" alt="Ajustes del modo trabajo">
+</p>
 
 ## Viaje al trabajo y clima
 <p align="center">
@@ -36,6 +48,8 @@ El clima sale de [Open-Meteo](https://open-meteo.com), que es gratis y no necesi
   - `POST /api/luces/<id>`: cambia `encendida`, `brillo` (1-100), `color` (`#rrggbb`) o `blanco` (0 cálido - 100 frío).
   - `GET /api/viaje`: hora de salida, minutos de viaje y demora por tráfico.
   - `GET /api/clima`: clima actual y del día en casa y en el trabajo.
+  - `GET /api/ajustes` y `POST /api/ajustes`: ajustes del despertador y del modo trabajo.
+  - `POST /api/probar/despertador` y `POST /api/probar/trabajo`: versión rápida para ver cómo queda.
 - `web/`: la página del panel (HTML, CSS y JS sin dependencias ni paso de compilación).
 
 ## Probarlo sin luces

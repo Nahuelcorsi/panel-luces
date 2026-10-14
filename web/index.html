@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0b0d12">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icono.svg">
-<title>Mis luces</title>
+<title>Mi casa</title>
 <style>
   :root {
     --fondo: #0b0d12;
@@ -18,20 +18,80 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--texto);
                font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  button { font: inherit; color: inherit; cursor: pointer; }
+  button { font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+  .oculta { display: none !important; }
 
-  /* Fondo que toma el color de la luz que se está viendo */
+  /* Fondo que toma el color de lo que se está viendo */
   #ambiente { position: fixed; inset: 0; transition: background 1s ease;
               background: radial-gradient(120% 70% at 50% 28%, var(--ambiente, #1a1f2b) 0%, transparent 65%); opacity: .55; }
 
-  #carrusel { position: relative; height: 100%; display: flex; overflow-x: auto; overflow-y: hidden;
-              scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-  #carrusel::-webkit-scrollbar { display: none; }
+  /* ---- Inicio: reloj + mosaicos ---- */
+  #inicio { position: fixed; inset: 0; overflow-y: auto; scrollbar-width: none;
+            padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+  #inicio::-webkit-scrollbar { display: none; }
+  #inicio > * { max-width: 520px; margin-left: auto; margin-right: auto; }
+  .reloj { text-align: center; margin-bottom: 26px; }
+  .reloj .hora { font-size: 72px; font-weight: 700; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .reloj .fecha { margin-top: 6px; color: var(--suave); font-size: 16px; }
+  h2 { margin: 0 4px 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--suave); }
+  .bloque { margin-bottom: 24px; }
 
-  .luz { flex: 0 0 100%; height: 100%; scroll-snap-align: center; scroll-snap-stop: always;
-         display: flex; flex-direction: column; align-items: center; justify-content: space-between;
-         padding: calc(44px + env(safe-area-inset-top)) 24px calc(56px + env(safe-area-inset-bottom));
-         overflow-y: auto; }
+  .escenas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .escena { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 20px; padding: 12px 2px 10px;
+            display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; color: var(--suave); transition: all .2s; }
+  .escena span { font-size: 28px; line-height: 1; }
+  .escenas.sin-luces .escena { opacity: .35; pointer-events: none; }
+  /* Selector de luces para las escenas */
+  .selector { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px 7px 10px; font-size: 14px;
+          color: var(--suave); display: flex; align-items: center; gap: 7px; transition: all .2s; }
+  .chip i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--suave); display: grid; place-items: center; font-style: normal; font-size: 11px; }
+  .chip.sel { background: rgba(255, 255, 255, .9); color: #101218; border-color: transparent; }
+  .chip.sel i { background: #101218; border-color: #101218; color: #fff; }
+  .escena:active, .escena.tocada { background: rgba(255, 255, 255, .2); color: var(--texto); transform: scale(.96); }
+
+  .grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mosaico { position: relative; border: 1px solid var(--borde); background: var(--vidrio); border-radius: 24px;
+             min-height: 132px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
+             transition: background .4s, border-color .4s, box-shadow .4s; overflow: hidden; }
+  .mosaico:active { transform: scale(.98); }
+  .mosaico .m-icono { font-size: 30px; line-height: 1; }
+  .mosaico .m-titulo { font-size: 17px; font-weight: 650; margin-top: 10px; }
+  .mosaico .m-sub { color: var(--suave); font-size: 14px; }
+  .mosaico .m-grande { font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .mosaico.ancho { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; }
+
+  /* Mosaico de luz: se tiñe con el color de la luz cuando está prendida */
+  .m-luz .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
+  .m-luz .m-icono { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .08);
+                    transition: all .4s; position: relative; pointer-events: none; }
+  .m-luz .m-icono svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  .m-luz .textos { pointer-events: none; position: relative; }
+  .m-luz .m-power { position: absolute; top: 12px; right: 12px; width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--borde);
+                    background: rgba(255, 255, 255, .06); display: grid; place-items: center; }
+  .m-luz .m-power svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.4; stroke-linecap: round; }
+  .m-luz.on { background: color-mix(in srgb, var(--color) 20%, rgba(255, 255, 255, .05)); border-color: color-mix(in srgb, var(--color) 45%, transparent);
+              box-shadow: 0 0 40px -8px color-mix(in srgb, var(--color) 55%, transparent); }
+  .m-luz.on .m-icono { background: var(--color); box-shadow: 0 0 22px color-mix(in srgb, var(--color) 80%, transparent); }
+  .m-luz.on .m-icono svg { stroke: #101218; }
+  .m-luz.on .m-power { background: rgba(255, 255, 255, .9); border-color: transparent; }
+  .m-luz.on .m-power svg { stroke: #101218; }
+  .m-luz.offline { opacity: .45; }
+
+  .m-clima { justify-content: center; gap: 10px; }
+  .m-clima .fila { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+  .m-clima .fila b { font-size: 24px; font-variant-numeric: tabular-nums; }
+  .m-clima .fila span:last-child { color: var(--suave); }
+
+  /* ---- Detalle: una pantalla por luz o ventana de información ---- */
+  #detalle { position: fixed; inset: 0; }
+  #volver { position: absolute; z-index: 2; top: calc(14px + env(safe-area-inset-top)); left: 12px; border: 1px solid var(--borde);
+            background: rgba(20, 23, 31, .7); border-radius: 99px; padding: 8px 16px 8px 12px; font-size: 15px; display: flex; align-items: center; gap: 4px; }
+  #volver svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+  .luz { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: space-between;
+         padding: calc(76px + env(safe-area-inset-top)) 24px calc(40px + env(safe-area-inset-bottom)); overflow-y: auto; }
+  .luz.activa { display: flex; }
   .luz > * { width: 100%; max-width: 420px; }
 
   .cabecera { text-align: center; }
@@ -72,16 +132,11 @@
   .tono::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 3px solid rgba(0, 0, 0, .35); }
 
   .blancos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .blanco { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 13px 0; font-size: 15px; transition: background .2s; }
+  .blanco { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 13px 0; font-size: 15px; text-align: center; transition: background .2s; }
   .blanco:active { background: rgba(255, 255, 255, .18); }
   .blanco i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
 
   .luz.offline .centro, .luz.offline .controles { opacity: .25; pointer-events: none; }
-
-  /* Indicador de página */
-  #puntos { position: fixed; left: 0; right: 0; bottom: calc(22px + env(safe-area-inset-bottom)); display: flex; justify-content: center; gap: 10px; }
-  #puntos button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; background: rgba(255, 255, 255, .28); transition: all .3s; }
-  #puntos button.activo { width: 26px; background: #fff; }
 
   /* Ventanas de información (viaje y clima) */
   .info { justify-content: center; gap: 28px; }
@@ -101,25 +156,139 @@
   .lugar .desc { font-size: 17px; }
   .lugar .extra { color: var(--suave); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 
-  @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; } }
+  /* ---- Rutinas: despertador y modo trabajo ---- */
+  .m-rutina .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
+  .m-rutina .m-icono, .m-rutina .textos { pointer-events: none; position: relative; }
+  .m-rutina .interruptor { position: absolute; top: 14px; right: 14px; }
+  .m-rutina.activa { border-color: rgba(255, 196, 120, .45); background: rgba(255, 180, 90, .10); }
+  .interruptor { width: 52px; height: 30px; border-radius: 99px; border: 0; padding: 0; background: rgba(255, 255, 255, .16); position: relative; transition: background .25s; flex: none; }
+  .interruptor::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s; }
+  .interruptor.on { background: #34c759; }
+  .interruptor.on::after { transform: translateX(22px); }
+  .ajustes { justify-content: flex-start; gap: 16px; }
+  .tarjeta { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 22px; padding: 16px 18px; }
+  .renglon { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 17px; }
+  .etiqueta { color: var(--suave); font-size: 14px; margin-bottom: 10px; }
+  .ajustes input[type=time] { font: inherit; font-size: 56px; font-weight: 700; color: var(--texto); background: none; border: 0; width: 100%;
+                              text-align: center; font-variant-numeric: tabular-nums; color-scheme: dark; }
+  .opciones { display: flex; flex-wrap: wrap; gap: 8px; }
+  .opciones .chip { padding: 8px 14px; }
+  .dias .chip { width: 42px; height: 42px; padding: 0; justify-content: center; }
+  .probar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 14px; font-size: 16px; text-align: center; }
+  .probar:active { background: rgba(255, 255, 255, .25); }
+  .explica { color: var(--suave); font-size: 14px; text-align: center; }
+
+  /* ---- Hablarle al panel ---- */
+  #microfono { position: fixed; z-index: 5; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%;
+               border: 0; background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); display: grid; place-items: center; }
+  #microfono svg { width: 28px; height: 28px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  #voz { position: fixed; z-index: 6; inset: 0; background: rgba(5, 7, 11, .97); display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 22px; padding: 30px; text-align: center; }
+  #voz .onda { width: 110px; height: 110px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
+  #voz .onda svg { width: 44px; height: 44px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  #voz.escuchando .onda { animation: latido 1.2s ease-in-out infinite; }
+  @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, .35); } 50% { box-shadow: 0 0 0 26px rgba(255, 255, 255, 0); } }
+  #voz .oido { font-size: 22px; min-height: 30px; }
+  #voz .respuesta { font-size: 18px; color: var(--suave); max-width: 420px; }
+  #voz .ayuda { font-size: 14px; color: rgba(244, 246, 250, .4); max-width: 420px; line-height: 1.7; }
+
+  /* ---- Modo noche: pantalla negra con un reloj tenue ---- */
+  #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column;
+           align-items: center; justify-content: center; color: rgba(255, 255, 255, .32); cursor: pointer; }
+  #noche .hora { font-size: 112px; font-weight: 200; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  #noche .fecha { margin-top: 10px; font-size: 18px; }
+  #noche .salida { margin-top: 36px; font-size: 16px; color: rgba(255, 255, 255, .22); }
+  #noche .pista { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); font-size: 13px; color: rgba(255, 255, 255, .14); }
+
+  @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; }
+                               .reloj .hora { font-size: 56px; } .mosaico { min-height: 112px; } }
 </style>
 </head>
 <body>
 <div id="ambiente"></div>
-<div id="carrusel"></div>
-<div id="puntos"></div>
+
+<main id="inicio">
+  <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
+  <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
+  <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
+  <section class="bloque"><h2>Rutinas</h2>
+    <div class="grilla">
+      <div class="mosaico m-rutina" id="m-despertador">
+        <button class="abrir" aria-label="Ajustes del despertador"></button>
+        <div class="m-icono">⏰</div>
+        <div class="textos"><div class="m-grande">--:--</div><div class="m-sub">Despertador</div></div>
+        <button class="interruptor" aria-label="Activar o desactivar el despertador"></button>
+      </div>
+      <div class="mosaico m-rutina" id="m-trabajo">
+        <button class="abrir" aria-label="Ajustes del modo trabajo"></button>
+        <div class="m-icono">🚦</div>
+        <div class="textos"><div class="m-titulo">Modo trabajo</div><div class="m-sub">Apagado</div></div>
+        <button class="interruptor" aria-label="Activar o desactivar el modo trabajo"></button>
+      </div>
+    </div>
+  </section>
+  <section class="bloque" style="padding-bottom: 70px"><h2>Hoy</h2>
+    <div class="grilla">
+      <button class="mosaico" id="m-viaje">
+        <div class="m-icono">🚗</div>
+        <div><div class="m-grande">--:--</div><div class="m-sub">Salir al trabajo</div></div>
+      </button>
+      <button class="mosaico m-clima" id="m-clima">
+        <div class="m-icono">🌡️</div>
+        <div class="filas"></div>
+      </button>
+      <button class="mosaico ancho" id="m-noche">
+        <div class="m-icono">🌙</div>
+        <div><div class="m-titulo" style="margin:0">Modo noche</div><div class="m-sub">Apaga la pantalla y deja un reloj tenue</div></div>
+      </button>
+    </div>
+  </section>
+</main>
+
+<div id="detalle" class="oculta">
+  <button id="volver"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Inicio</button>
+</div>
+
+<button id="microfono" aria-label="Hablarle al panel"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></button>
+<div id="voz" class="oculta">
+  <div class="onda"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></div>
+  <div class="oido"></div>
+  <div class="respuesta"></div>
+  <div class="ayuda">Probá: "prendé la lámpara" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
+    "¿a qué hora salgo?" · "¿cómo está el clima?" · "despertador a las 6 y media" · "modo noche"</div>
+</div>
+
+<div id="noche" class="oculta">
+  <div class="hora"></div><div class="fecha"></div><div class="salida"></div>
+  <div class="pista">Tocá la pantalla para volver</div>
+</div>
 
 <script>
-const carrusel = document.getElementById('carrusel');
-const puntos = document.getElementById('puntos');
+const inicio = document.getElementById('inicio');
+const detalle = document.getElementById('detalle');
 const ambiente = document.getElementById('ambiente');
-const tarjetas = {};      // id -> elemento
+const grillaLuces = document.getElementById('grilla-luces');
+const tarjetas = {};      // id -> pantalla de la luz
+const mosaicos = {};      // id -> mosaico de la luz en el inicio
 const tocado = {};        // id -> instante del último toque (para no pisar lo que estás moviendo)
 const pendiente = {};     // id -> cambios acumulados por enviar
 const temporizador = {};
 
 const ICONO = '<svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>';
+const FOCO = '<svg viewBox="0 0 24 24"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></svg>';
 const PRESETS = [['Cálido', 0, '#ffb86b'], ['Neutro', 50, '#fff1dc'], ['Frío', 100, '#cfe3ff']];
+
+// Escenas: se aplican a todas las luces a la vez
+const ESCENAS = [
+  ['Apagar', '🌑', { encendida: false }],
+  ['Prender', '💡', { encendida: true, blanco: 50, brillo: 100 }],
+  ['Relax', '🛋️', { encendida: true, blanco: 0, brillo: 45 }],
+  ['Tenue', '🕯️', { encendida: true, blanco: 0, brillo: 8 }],
+  ['Cine', '🎬', { encendida: true, color: '#5b3cff', brillo: 25 }],
+];
+
+// Modo noche automático: entre estas horas el panel pasa solo al reloj tenue
+const NOCHE_DESDE = '23:00', NOCHE_HASTA = '06:30';
 
 // ---- color ----
 function hexAHue(hex) {
@@ -147,12 +316,44 @@ function enviar(id, cambios, ya) {
       if (r.ok && !tocadoReciente(id)) pintar(await r.json());
     } catch (e) {}
   };
-  if (ya) return mandar();
+  if (ya) { clearTimeout(temporizador[id]); return mandar(); }
   temporizador[id] = setTimeout(mandar, 140);
 }
 const tocadoReciente = id => Date.now() - (tocado[id] || 0) < 2500;
 
-// ---- tarjetas ----
+// ---- navegación: inicio <-> detalle ----
+let abierta = null;
+if (history.state) history.replaceState(null, '');   // al recargar se arranca siempre en el inicio
+function abrir(s) {
+  detalle.querySelectorAll('.luz.activa').forEach(x => x.classList.remove('activa'));
+  s.classList.add('activa');
+  abierta = s;
+  detalle.classList.remove('oculta');
+  inicio.classList.add('oculta');
+  if (!history.state) history.pushState({ detalle: true }, '');
+  pintarAmbiente();
+}
+function cerrar() {
+  if (!abierta) return;
+  abierta.classList.remove('activa');
+  abierta = null;
+  detalle.classList.add('oculta');
+  inicio.classList.remove('oculta');
+  pintarAmbiente();
+}
+document.getElementById('volver').onclick = () => history.state ? history.back() : cerrar();
+addEventListener('popstate', cerrar);   // botón "atrás" de Android
+addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('volver').click(); });
+
+function pintarAmbiente() {
+  const s = abierta;
+  let c = '#1a1f2b';
+  if (s && s.dataset.ambiente) c = s.dataset.ambiente;
+  else if (s && s.classList.contains('on')) c = s.style.getPropertyValue('--color') || c;
+  ambiente.style.setProperty('--ambiente', c);
+}
+
+// ---- pantalla de cada luz ----
 function crear(l) {
   const s = document.createElement('section');
   s.className = 'luz';
@@ -168,12 +369,13 @@ function crear(l) {
     </div>`;
   s.querySelector('.nombre').textContent = l.nombre;
 
-  s.querySelector('.power').onclick = () => {
+  const alternar = () => {
     const encender = !s.classList.contains('on');
     s.classList.toggle('on', encender);               // respuesta inmediata
     textoEstado(s);
     enviar(l.id, { encendida: encender }, true);
   };
+  s.querySelector('.power').onclick = alternar;
   const brillo = s.querySelector('.brillo'), tono = s.querySelector('.tono');
   brillo.oninput = () => { marcarBrillo(s, +brillo.value); enviar(l.id, { brillo: +brillo.value }); };
   tono.oninput = () => {
@@ -190,35 +392,57 @@ function crear(l) {
     textoEstado(s);
     enviar(l.id, { blanco: t, brillo: +brillo.value }, true);
   });
+  detalle.appendChild(s);
 
-  agregarPagina(s, l.nombre, carrusel.querySelector('.info'));   // las luces van antes de las ventanas de información
+  // Mosaico en el inicio: tocarlo abre la luz, el botón de la esquina la prende o apaga
+  const m = document.createElement('div');
+  m.className = 'mosaico m-luz';
+  m.innerHTML = `<button class="abrir" aria-label="Abrir ${l.nombre}"></button>
+    <div class="m-icono">${FOCO}</div>
+    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
+    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
+  m.querySelector('.m-titulo').textContent = l.nombre;
+  m.querySelector('.abrir').onclick = () => abrir(s);
+  m.querySelector('.m-power').onclick = alternar;
+  grillaLuces.appendChild(m);
+  mosaicos[l.id] = m;
+
+  // Chip para elegir si esta luz entra en las escenas
+  const chip = document.createElement('button');
+  chip.className = 'chip';
+  chip.innerHTML = '<i></i><span></span>';
+  chip.querySelector('span').textContent = l.nombre;
+  chip.dataset.id = l.id;
+  chip.onclick = () => { fueraDeEscenas[l.id] = !fueraDeEscenas[l.id]; guardarSelector(); pintarSelector(); };
+  document.getElementById('selector').appendChild(chip);
+  pintarSelector();
+  pintarRutinas();   // para que la luz nueva aparezca en el despertador y el modo trabajo
+  s.dataset.id = l.id;
   return tarjetas[l.id] = s;
-}
-
-function agregarPagina(s, nombre, antesDe) {
-  const i = antesDe ? [...carrusel.children].indexOf(antesDe) : -1;
-  carrusel.insertBefore(s, antesDe || null);
-  const p = document.createElement('button');
-  p.setAttribute('aria-label', nombre);
-  p.onclick = () => s.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-  puntos.insertBefore(p, i >= 0 ? puntos.children[i] : null);
 }
 
 function textoEstado(s) {
   s.querySelector('.estado').textContent = s.classList.contains('offline') ? 'Sin conexión'
     : s.classList.contains('on') ? 'Encendida' : 'Apagada';
-  ambienteDe(s);
+  pintarMosaico(s);
+  if (s === abierta) pintarAmbiente();
 }
 function marcarBrillo(s, v) {
   s.querySelector('.brillo').style.setProperty('--p', v + '%');
   s.querySelector('.pct').textContent = v + '%';
+  pintarMosaico(s);
 }
-function ambienteDe(s) {
-  if (s !== visible()) return;
-  const encendida = s.classList.contains('on');
-  ambiente.style.setProperty('--ambiente', encendida ? (s.style.getPropertyValue('--color') || '#1a1f2b') : '#1a1f2b');
+function fijarColor(s, c) { s.style.setProperty('--color', c); pintarMosaico(s); if (s === abierta) pintarAmbiente(); }
+
+function pintarMosaico(s) {
+  const m = mosaicos[s.dataset.id];
+  if (!m) return;
+  const on = s.classList.contains('on'), off = s.classList.contains('offline');
+  m.classList.toggle('on', on && !off);
+  m.classList.toggle('offline', off);
+  m.style.setProperty('--color', s.style.getPropertyValue('--color') || '#ffb347');
+  m.querySelector('.m-sub').textContent = off ? 'Sin conexión' : on ? `Prendida · ${s.querySelector('.brillo').value}%` : 'Apagada';
 }
-function fijarColor(s, c) { s.style.setProperty('--color', c); ambienteDe(s); }
 
 function pintar(l) {
   const s = tarjetas[l.id] || crear(l);
@@ -226,34 +450,64 @@ function pintar(l) {
   if (!l.online) return textoEstado(s);
   if (tocadoReciente(l.id)) return;
   s.classList.toggle('on', l.encendida);
-  textoEstado(s);
   fijarColor(s, l.color);
   s.querySelector('.brillo').value = l.brillo;
   marcarBrillo(s, l.brillo);
   s.querySelector('.tono').value = hexAHue(l.color);
+  textoEstado(s);
 }
-
-// ---- carrusel ----
-function visible() { return carrusel.children[Math.round(carrusel.scrollLeft / carrusel.clientWidth)]; }
-function actualizarPagina() {
-  const i = Math.round(carrusel.scrollLeft / carrusel.clientWidth);
-  [...puntos.children].forEach((p, n) => p.classList.toggle('activo', n === i));
-  const s = carrusel.children[i];
-  if (s && s.classList.contains('info')) ambiente.style.setProperty('--ambiente', s.dataset.ambiente);
-  else if (s) ambienteDe(s);
-  puntos.style.display = carrusel.children.length > 1 ? 'flex' : 'none';
-}
-carrusel.addEventListener('scroll', actualizarPagina, { passive: true });
-addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') carrusel.scrollBy({ left: carrusel.clientWidth, behavior: 'smooth' });
-  if (e.key === 'ArrowLeft') carrusel.scrollBy({ left: -carrusel.clientWidth, behavior: 'smooth' });
-});
 
 async function refrescar() {
-  try { (await (await fetch('/api/luces')).json()).forEach(pintar); actualizarPagina(); } catch (e) {}
+  try { (await (await fetch('/api/luces')).json()).forEach(pintar); } catch (e) {}
 }
 refrescar();
 setInterval(refrescar, 4000);
+
+// ---- escenas ----
+// Se guardan las luces que NO entran en las escenas, así una luz nueva entra sola
+let fueraDeEscenas = {};
+try { fueraDeEscenas = JSON.parse(localStorage.getItem('fuera-de-escenas')) || {}; } catch (e) {}
+function guardarSelector() { try { localStorage.setItem('fuera-de-escenas', JSON.stringify(fueraDeEscenas)); } catch (e) {} }
+function pintarSelector() {
+  let alguna = false;
+  document.querySelectorAll('.chip').forEach(c => {
+    const sel = !fueraDeEscenas[c.dataset.id];
+    c.classList.toggle('sel', sel);
+    c.querySelector('i').textContent = sel ? '✓' : '';
+    alguna = alguna || sel;
+  });
+  document.getElementById('escenas').classList.toggle('sin-luces', !alguna);
+}
+function aplicarEscena(cambios) {
+  for (const s of Object.values(tarjetas)) {
+    if (s.classList.contains('offline') || fueraDeEscenas[s.dataset.id]) continue;
+    s.classList.toggle('on', cambios.encendida);          // respuesta inmediata en la pantalla
+    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+    textoEstado(s);
+    enviar(s.dataset.id, cambios, true);
+  }
+}
+const escenas = document.getElementById('escenas');
+for (const [nombre, icono, cambios] of ESCENAS) {
+  const b = document.createElement('button');
+  b.className = 'escena';
+  b.innerHTML = `<span>${icono}</span>${nombre}`;
+  b.onclick = () => { aplicarEscena(cambios); b.classList.add('tocada'); setTimeout(() => b.classList.remove('tocada'), 300); };
+  escenas.appendChild(b);
+}
+
+// ---- reloj ----
+const hora = d => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+const fecha = d => d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' });
+function pintarReloj() {
+  const ahora = new Date();
+  document.querySelectorAll('.hora').forEach(e => e.textContent = hora(ahora));
+  document.querySelectorAll('.fecha').forEach(e => e.textContent = fecha(ahora).replace(/^./, c => c.toUpperCase()));
+}
+pintarReloj();
+setInterval(pintarReloj, 5000);
 
 // ---- ventana: a qué hora salir al trabajo ----
 const viaje = document.createElement('section');
@@ -264,18 +518,19 @@ viaje.innerHTML = `
   <div><div class="grande">--:--</div><div class="sub"></div></div>
   <div class="datos"></div>
   <div class="aviso"></div>`;
-agregarPagina(viaje, 'Salir al trabajo');
+detalle.appendChild(viaje);
+document.getElementById('m-viaje').onclick = () => abrir(viaje);
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-const hora = d => d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 let datosViaje = null;
 
 function pintarViaje() {
-  const v = datosViaje, $ = q => viaje.querySelector(q);
+  const v = datosViaje, $ = q => viaje.querySelector(q), mv = document.getElementById('m-viaje');
   if (!v) return;
   if (!v.ok) {
     $('.grande').textContent = '--:--'; $('.sub').textContent = ''; $('.datos').innerHTML = '';
     $('.estado').textContent = ''; $('.aviso').textContent = v.error;
+    mv.querySelector('.m-grande').textContent = '--:--';
     return;
   }
   const salida = new Date(v.salida), llegada = new Date(v.llegada), ahora = new Date();
@@ -285,13 +540,17 @@ function pintarViaje() {
   $('.estado').textContent = `Para llegar ${cuando} a las ${hora(llegada)}`;
   $('.grande').textContent = hora(salida);
   const faltan = Math.round((salida - ahora) / 60000);
-  $('.sub').textContent = faltan < 0 ? `Ya tendrías que haber salido (hace ${-faltan} min)`
+  const sub = faltan < 0 ? `Ya tendrías que haber salido (hace ${-faltan} min)`
     : faltan <= 90 ? `Salí en ${faltan} min` : 'Hora de salida';
+  $('.sub').textContent = sub;
   $('.datos').innerHTML = `
     <div class="dato"><b>${v.minutos} min</b><span>de viaje</span></div>
     <div class="dato"><b>${v.demora ? '+' + v.demora : '0'} min</b><span>por tráfico</span></div>
     <div class="dato"><b>${String(v.km).replace('.', ',')} km</b><span>distancia</span></div>`;
   $('.aviso').textContent = 'Con el tráfico en vivo de TomTom';
+  mv.querySelector('.m-grande').textContent = hora(salida);
+  mv.querySelector('.m-sub').textContent = faltan >= 0 && faltan <= 90 ? sub : `Salir ${cuando} · ${v.minutos} min`;
+  document.querySelector('#noche .salida').textContent = `Salir ${cuando} a las ${hora(salida)}`;
 }
 async function refrescarViaje() {
   try { datosViaje = await (await fetch('/api/viaje')).json(); } catch (e) {}
@@ -307,7 +566,8 @@ clima.className = 'luz info clima';
 clima.dataset.ambiente = '#173041';
 clima.innerHTML = `<div class="cabecera"><h1 class="nombre">Clima</h1></div>
   <div class="lugar" data-l="casa"></div><div class="lugar" data-l="trabajo"></div>`;
-agregarPagina(clima, 'Clima');
+detalle.appendChild(clima);
+document.getElementById('m-clima').onclick = () => abrir(clima);
 
 // Códigos del tiempo de Open-Meteo (WMO): [códigos, descripción, ícono de día, ícono de noche]
 const TIEMPO = [[[0], 'Despejado', '☀️', '🌙'], [[1], 'Mayormente despejado', '🌤️', '🌙'], [[2], 'Parcialmente nublado', '⛅', '☁️'],
@@ -319,24 +579,302 @@ const grados = n => Math.round(n) + '°';
 async function refrescarClima() {
   let d;
   try { d = await (await fetch('/api/clima')).json(); } catch (e) { return; }
+  datosClima = d;
+  const filas = [];
   for (const clave of ['casa', 'trabajo']) {
     const c = d[clave], caja = clima.querySelector(`[data-l="${clave}"]`);
     if (!c) continue;
     if (!c.ok) {
       caja.innerHTML = `<div class="arriba"><span>${c.nombre}</span></div><div class="extra"></div>`;
       caja.querySelector('.extra').textContent = 'Sin datos: ' + c.error;
+      filas.push(`<div class="fila"><b>--</b><span>${c.nombre}</span></div>`);
       continue;
     }
     const t = TIEMPO.find(x => x[0].includes(c.codigo)) || [[], 'Variable', '🌡️', '🌡️'];
+    const icono = c.dia ? t[2] : t[3];
+    // El estado es el de ahora; si no llueve pero es probable que llueva pronto, se avisa
+    const desc = t[1] + (c.codigo < 51 && c.lluvia_3h >= 50 ? ', puede llover pronto' : '');
     caja.innerHTML = `
       <div class="arriba"><span>${c.nombre}</span><span>${grados(c.min)} / ${grados(c.max)}</span></div>
-      <div class="medio"><span class="icono">${c.dia ? t[2] : t[3]}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${t[1]}</span></div>
-      <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia ${c.lluvia ?? 0}%</span>
+      <div class="medio"><span class="icono">${icono}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${desc}</span></div>
+      <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia próx. 3 h ${c.lluvia_3h}%</span><span>Próx. 12 h ${c.lluvia_12h}%</span>
         <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
+    filas.push(`<div class="fila"><span>${icono}</span><b>${grados(c.temp)}</b><span>${c.nombre}</span></div>`);
   }
+  const mc = document.getElementById('m-clima');
+  mc.querySelector('.filas').innerHTML = filas.join('');
+  mc.querySelector('.m-icono').classList.add('oculta');
 }
+let datosClima = null;
 refrescarClima();
 setInterval(refrescarClima, 10 * 60000);
+
+// ---- rutinas: despertador y modo trabajo (las ejecuta el servidor, aunque la pantalla esté apagada) ----
+let ajustes = null;
+const DIAS_CORTOS = [[1, 'L'], [2, 'M'], [3, 'M'], [4, 'J'], [5, 'V'], [6, 'S'], [7, 'D']];
+const nombreLuz = id => tarjetas[id] ? tarjetas[id].querySelector('.nombre').textContent : id;
+
+async function guardarAjustes(cambios) {
+  try { ajustes = await (await fetch('/api/ajustes', { method: 'POST', body: JSON.stringify(cambios) })).json(); } catch (e) {}
+  pintarRutinas();
+}
+async function cargarAjustes() {
+  try { ajustes = await (await fetch('/api/ajustes')).json(); } catch (e) {}
+  pintarRutinas();
+}
+
+function pantallaRutina(modo, titulo, explica) {
+  const s = document.createElement('section');
+  s.className = 'luz info ajustes';
+  s.dataset.ambiente = modo === 'despertador' ? '#3a2410' : '#13321c';
+  s.innerHTML = `
+    <div class="cabecera"><h1 class="nombre">${titulo}</h1></div>
+    <div class="tarjeta renglon"><span>Activado</span><button class="interruptor" aria-label="Activar o desactivar"></button></div>
+    ${modo === 'despertador' ? `<div class="tarjeta"><div class="etiqueta">Hora de despertarse</div><input type="time" class="hora-alarma"></div>
+      <div class="tarjeta"><div class="etiqueta">Días</div><div class="opciones dias"></div></div>` : ''}
+    <div class="tarjeta"><div class="etiqueta">Luces</div><div class="opciones luces"></div></div>
+    <div class="tarjeta"><div class="etiqueta minutos-titulo"></div><div class="opciones minutos"></div></div>
+    <div class="explica"></div>
+    <button class="probar">Probar ahora (versión rápida)</button>`;
+  s.querySelector('.explica').textContent = explica;
+  s.querySelector('.interruptor').onclick = () => guardarAjustes({ [modo]: { activo: !ajustes[modo].activo } });
+  const h = s.querySelector('.hora-alarma');
+  if (h) h.onchange = () => h.value && guardarAjustes({ [modo]: { hora: h.value } });
+  const probar = s.querySelector('.probar');
+  probar.onclick = async () => {
+    probar.textContent = 'Probando…';
+    try { await fetch('/api/probar/' + modo, { method: 'POST' }); } catch (e) {}
+    setTimeout(() => probar.textContent = 'Probar ahora (versión rápida)', 32000);
+  };
+  detalle.appendChild(s);
+  const m = document.getElementById('m-' + modo);
+  m.querySelector('.abrir').onclick = () => abrir(s);
+  m.querySelector('.interruptor').onclick = () => guardarAjustes({ [modo]: { activo: !ajustes[modo].activo } });
+  return s;
+}
+const pantallas = {
+  despertador: pantallaRutina('despertador', 'Despertador',
+    'Las luces elegidas se prenden de a poco simulando un amanecer: arrancan rojizas y muy tenues, y a la hora elegida quedan en blanco cálido al máximo.'),
+  trabajo: pantallaRutina('trabajo', 'Modo trabajo',
+    'Antes de la hora de salir, las luces elegidas pasan de verde a amarillo y a rojo. A la hora exacta de salir parpadean 4 veces y quedan rojas. Usa la hora de salida calculada con el tráfico, los días de trabajo.'),
+};
+
+function chipsOpcion(cont, valores, elegidos, alTocar) {
+  cont.innerHTML = '';
+  for (const [valor, texto] of valores) {
+    const c = document.createElement('button');
+    c.className = 'chip' + (elegidos.includes(valor) ? ' sel' : '');
+    c.textContent = texto;
+    c.onclick = () => alTocar(valor);
+    cont.appendChild(c);
+  }
+}
+const alternarEn = (lista, v) => lista.includes(v) ? lista.filter(x => x !== v) : [...lista, v];
+
+function resumirDias(dias) {
+  const orden = [...dias].sort();
+  if (orden.join() === '1,2,3,4,5,6') return 'L a S';
+  if (orden.join() === '1,2,3,4,5') return 'L a V';
+  if (orden.length === 7) return 'todos los días';
+  return orden.map(n => DIAS_CORTOS[n - 1][1]).join(' ') || 'ningún día';
+}
+
+function pintarRutinas() {
+  if (!ajustes || ajustes.error) return;
+  for (const modo of ['despertador', 'trabajo']) {
+    const a = ajustes[modo], s = pantallas[modo], m = document.getElementById('m-' + modo);
+    s.querySelector('.interruptor').classList.toggle('on', a.activo);
+    m.querySelector('.interruptor').classList.toggle('on', a.activo);
+    m.classList.toggle('activa', a.activo);
+    chipsOpcion(s.querySelector('.luces'), Object.keys(tarjetas).map(id => [id, nombreLuz(id)]), a.luces,
+      id => guardarAjustes({ [modo]: { luces: alternarEn(a.luces, id) } }));
+    chipsOpcion(s.querySelector('.minutos'), [10, 20, 30, 45, 60].map(n => [n, n + ' min']), [a.minutos],
+      n => guardarAjustes({ [modo]: { minutos: n } }));
+    s.querySelector('.minutos-titulo').textContent = modo === 'despertador'
+      ? 'Cuánto antes de la hora empieza a prenderse' : 'Cuánto antes de la hora de salir empieza';
+  }
+  const d = ajustes.despertador, sd = pantallas.despertador, h = sd.querySelector('.hora-alarma');
+  if (document.activeElement !== h) h.value = d.hora;
+  chipsOpcion(sd.querySelector('.dias'), DIAS_CORTOS, d.dias, n => guardarAjustes({ despertador: { dias: alternarEn(d.dias, n) } }));
+  const md = document.getElementById('m-despertador');
+  md.querySelector('.m-grande').textContent = d.hora;
+  md.querySelector('.m-sub').textContent = d.activo ? 'Despertador · ' + resumirDias(d.dias) : 'Despertador apagado';
+  const t = ajustes.trabajo;
+  document.querySelector('#m-trabajo .m-sub').textContent = t.activo ? `Empieza ${t.minutos} min antes de salir` : 'Apagado';
+}
+cargarAjustes();
+setInterval(cargarAjustes, 60000);
+
+// ---- hablarle al panel (usa el reconocimiento de voz de Chrome) ----
+const voz = document.getElementById('voz');
+const Reconocedor = window.SpeechRecognition || window.webkitSpeechRecognition;
+const sinTildes = t => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function decir(texto) {
+  voz.querySelector('.respuesta').textContent = texto;
+  try {
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'es-AR';
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+let cierreVoz = null;
+function cerrarVoz(demora) { clearTimeout(cierreVoz); cierreVoz = setTimeout(() => voz.classList.add('oculta'), demora); }
+voz.onclick = () => cerrarVoz(0);
+
+document.getElementById('microfono').onclick = () => {
+  voz.classList.remove('oculta');
+  voz.querySelector('.oido').textContent = '';
+  voz.querySelector('.respuesta').textContent = '';
+  clearTimeout(cierreVoz);
+  if (!Reconocedor) { decir('Este navegador no permite reconocer la voz. Usá Chrome.'); return cerrarVoz(6000); }
+  const r = new Reconocedor();
+  r.lang = 'es-AR';
+  r.interimResults = true;
+  voz.classList.add('escuchando');
+  voz.querySelector('.oido').textContent = 'Escuchando…';
+  let final = '';
+  r.onresult = e => {
+    const t = [...e.results].map(x => x[0].transcript).join(' ');
+    voz.querySelector('.oido').textContent = '“' + t + '”';
+    if (e.results[e.results.length - 1].isFinal) final = t;
+  };
+  r.onerror = e => {
+    if (e.error === 'not-allowed') decir('No tengo permiso para usar el micrófono. Habilitalo en los permisos de Chrome.');
+    else if (e.error === 'network') decir('Para entender la voz necesito internet.');
+    else if (e.error !== 'no-speech' && e.error !== 'aborted') decir('No pude escuchar bien. Probá de nuevo.');
+  };
+  r.onend = () => {
+    voz.classList.remove('escuchando');
+    if (final) decir(entenderComando(final));
+    else if (!voz.querySelector('.respuesta').textContent) { voz.querySelector('.oido').textContent = ''; decir('No escuché nada.'); }
+    cerrarVoz(7000);
+  };
+  r.start();
+};
+
+const NUMEROS = { una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12 };
+const COLORES = { rojo: '#ff0000', roja: '#ff0000', azul: '#1e5bff', verde: '#00ff40', violeta: '#7a2cff', morado: '#7a2cff', lila: '#b07cff',
+  amarillo: '#ffd000', amarilla: '#ffd000', naranja: '#ff7a00', rosa: '#ff3c9a', celeste: '#3cc8ff', turquesa: '#00e0c0' };
+
+function horaDicha(t) {
+  // "6:30", "6 y 30", "6 y media", "seis y cuarto", "7 menos cuarto", "a las 7"
+  t = t.replace(/\b(una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\b/g, w => NUMEROS[w]);
+  const m = t.match(/(\d{1,2})(?:[:.](\d{2})| y (\d{1,2}|media|cuarto)| menos (cuarto|\d{1,2}))?/);
+  if (!m) return null;
+  let h = +m[1], min = 0;
+  if (m[2]) min = +m[2];
+  else if (m[3]) min = m[3] === 'media' ? 30 : m[3] === 'cuarto' ? 15 : +m[3];
+  else if (m[4]) { h -= 1; min = 60 - (m[4] === 'cuarto' ? 15 : +m[4]); }
+  if (/de la (tarde|noche)/.test(t) && h < 12) h += 12;
+  if (h > 23 || min > 59) return null;
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+
+function lucesNombradas(t) {
+  const ids = Object.keys(tarjetas).filter(id => t.includes(sinTildes(nombreLuz(id))));
+  return ids.length ? ids : Object.keys(tarjetas);
+}
+function cambiarLuces(ids, cambios) {
+  for (const id of ids) {
+    const s = tarjetas[id];
+    if (!s || s.classList.contains('offline')) continue;
+    if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
+    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+    textoEstado(s);
+    enviar(id, cambios, true);
+  }
+}
+const quienes = ids => ids.length === Object.keys(tarjetas).length ? (ids.length > 1 ? 'las luces' : 'la luz') : ids.map(nombreLuz).join(' y ');
+const esApagar = t => /\b(apag|desactiv|sac|cancel)/.test(t);
+
+function entenderComando(texto) {
+  const t = sinTildes(texto);
+  // Rutinas
+  if (t.includes('despertador') || t.includes('alarma')) {
+    if (esApagar(t)) { guardarAjustes({ despertador: { activo: false } }); return 'Listo, apagué el despertador.'; }
+    const h = horaDicha(t);
+    if (h) { guardarAjustes({ despertador: { activo: true, hora: h } }); return `Listo, el despertador queda a las ${h}.`; }
+    guardarAjustes({ despertador: { activo: true } });
+    return `Despertador activado a las ${ajustes ? ajustes.despertador.hora : ''}.`;
+  }
+  if (t.includes('modo trabajo')) {
+    const activo = !esApagar(t);
+    guardarAjustes({ trabajo: { activo } });
+    return activo ? 'Modo trabajo activado.' : 'Modo trabajo apagado.';
+  }
+  if (t.includes('modo noche') || t.includes('buenas noches')) {
+    setTimeout(() => { voz.classList.add('oculta'); nocheManual = true; revisarNoche(); }, 2500);
+    return 'Buenas noches.';
+  }
+  // Preguntas
+  if (/(salgo|salir|salida|trafico)/.test(t)) {
+    const v = datosViaje;
+    if (!v || !v.ok) return 'Todavía no tengo la hora de salida.';
+    return `Para llegar a las ${hora(new Date(v.llegada))} tenés que salir a las ${hora(new Date(v.salida))}. El viaje tarda ${v.minutos} minutos` +
+      (v.demora ? `, con ${v.demora} de demora por tráfico.` : ', sin demoras por tráfico.');
+  }
+  if (/(clima|temperatura|llueve|llover|lluvia|tiempo|frio hace|calor hace)/.test(t)) {
+    const c = datosClima && datosClima.casa;
+    if (!c || !c.ok) return 'Todavía no tengo el clima.';
+    const tt = TIEMPO.find(x => x[0].includes(c.codigo));
+    return `En casa hace ${Math.round(c.temp)} grados, ${(tt ? tt[1] : 'variable').toLowerCase()}. ` +
+      `La probabilidad de lluvia en las próximas 3 horas es del ${c.lluvia_3h} por ciento.`;
+  }
+  // Escenas ("escena cine", o solo "cine", "relax", "tenue")
+  for (const [nombre, , cambios] of ESCENAS) {
+    const clave = sinTildes(nombre);
+    if (t.includes('escena ' + clave) || (!['apagar', 'prender'].includes(clave) && t.includes(clave))) {
+      aplicarEscena(cambios);
+      return `Escena ${nombre.toLowerCase()}.`;
+    }
+  }
+  // Luces
+  const ids = lucesNombradas(t);
+  const n = t.match(/(\d{1,3})/);
+  if (t.includes('brillo') && n) {
+    const b = Math.max(1, Math.min(100, +n[1]));
+    cambiarLuces(ids, { encendida: true, brillo: b });
+    return `Brillo de ${quienes(ids)} al ${b} por ciento.`;
+  }
+  for (const [palabra, hex] of Object.entries(COLORES)) {
+    if (new RegExp('\\b' + palabra + '\\b').test(t)) { cambiarLuces(ids, { encendida: true, color: hex }); return `Puse ${quienes(ids)} en ${palabra}.`; }
+  }
+  for (const [palabra, valor] of [['calid', 0], ['neutr', 50], ['fri', 100], ['blanc', 50]]) {
+    if (new RegExp('\\b' + palabra + '[oa]\\b').test(t)) {
+      cambiarLuces(ids, { encendida: true, blanco: valor, brillo: +(tarjetas[ids[0]] ? tarjetas[ids[0]].querySelector('.brillo').value : 100) });
+      return `Puse ${quienes(ids)} en blanco ${{ calid: 'cálido', neutr: 'neutro', fri: 'frío', blanc: 'neutro' }[palabra]}.`;
+    }
+  }
+  if (/\bapag/.test(t)) { cambiarLuces(ids, { encendida: false }); return `Apagué ${quienes(ids)}.`; }
+  if (/\b(prend|encend)/.test(t)) { cambiarLuces(ids, { encendida: true }); return `Prendí ${quienes(ids)}.`; }
+  return 'No entendí ese pedido. Abajo tenés algunos ejemplos.';
+}
+
+// ---- modo noche ----
+const noche = document.getElementById('noche');
+let nocheManual = false, ultimoToque = Date.now();
+const enMinutos = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+function esHorarioNoche() {
+  const d = new Date(), m = d.getHours() * 60 + d.getMinutes(), desde = enMinutos(NOCHE_DESDE), hasta = enMinutos(NOCHE_HASTA);
+  return desde > hasta ? m >= desde || m < hasta : m >= desde && m < hasta;
+}
+function revisarNoche() {
+  // De noche vuelve sola al reloj tenue si nadie tocó la pantalla en 2 minutos
+  const mostrar = nocheManual || (esHorarioNoche() && Date.now() - ultimoToque > 2 * 60000);
+  noche.classList.toggle('oculta', !mostrar);
+}
+document.getElementById('m-noche').onclick = () => { nocheManual = true; revisarNoche(); };
+noche.onclick = () => { nocheManual = false; ultimoToque = Date.now(); revisarNoche(); };
+setInterval(revisarNoche, 15000);
+
+// Si nadie toca la pantalla por un rato, vuelve sola al inicio
+addEventListener('pointerdown', () => { ultimoToque = Date.now(); }, true);
+setInterval(() => {
+  if (abierta && Date.now() - ultimoToque > 2 * 60000) history.state ? history.back() : cerrar();
+}, 10000);
 
 // ---- que la pantalla no se apague (si el navegador lo permite) ----
 let candado = null;
