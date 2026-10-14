@@ -2,6 +2,12 @@
 
 Panel web táctil para controlar luces **Tuya / Smart Life** por la red local, sin la app oficial y sin pasar por la nube. Pensado para correr en un celular Android viejo (con Termux) y dejarlo como panel fijo en la pared.
 
+<p align="center">
+  <img src="docs/panel-1.png" width="230" alt="Luz en blanco cálido">
+  <img src="docs/panel-2.png" width="230" alt="Luz en violeta">
+  <img src="docs/panel-3.png" width="230" alt="Luz en celeste">
+</p>
+
 ## Qué hace
 - **Una luz por pantalla**: se desliza el dedo para cambiar de luz.
 - Botón de encendido grande que brilla con el color de la luz.
@@ -52,3 +58,6 @@ Abrir `http://localhost:8080`.
 
 ## Aclaración
 Proyecto personal, hecho a medida para unas luces concretas. No está afiliado a Tuya ni a Smart Life.
+
+## Licencia
+[MIT](LICENSE) © 2026 Nahuel Corsi
