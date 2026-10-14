@@ -357,6 +357,8 @@ function pintarAmbiente() {
 function crear(l) {
   const s = document.createElement('section');
   s.className = 'luz';
+  s.dataset.id = l.id;
+  tarjetas[l.id] = s;   // se registra primero: si algo de abajo falla, la luz no se vuelve a crear en cada actualización
   s.innerHTML = `
     <div class="cabecera"><h1 class="nombre"></h1><div class="estado"></div></div>
     <div class="centro"><button class="power" aria-label="Encender o apagar">${ICONO}</button></div>
@@ -417,8 +419,7 @@ function crear(l) {
   document.getElementById('selector').appendChild(chip);
   pintarSelector();
   pintarRutinas();   // para que la luz nueva aparezca en el despertador y el modo trabajo
-  s.dataset.id = l.id;
-  return tarjetas[l.id] = s;
+  return s;
 }
 
 function textoEstado(s) {
@@ -470,7 +471,7 @@ try { fueraDeEscenas = JSON.parse(localStorage.getItem('fuera-de-escenas')) || {
 function guardarSelector() { try { localStorage.setItem('fuera-de-escenas', JSON.stringify(fueraDeEscenas)); } catch (e) {} }
 function pintarSelector() {
   let alguna = false;
-  document.querySelectorAll('.chip').forEach(c => {
+  document.querySelectorAll('#selector .chip').forEach(c => {
     const sel = !fueraDeEscenas[c.dataset.id];
     c.classList.toggle('sel', sel);
     c.querySelector('i').textContent = sel ? '✓' : '';
