@@ -1,0 +1,7 @@
+{
+  "casa": { "direccion": "Av. Siempreviva 742, Ciudad, Provincia, Argentina" },
+  "trabajo": { "direccion": "Calle Falsa 123, Ciudad, Provincia, Argentina" },
+  "llegada": "08:00",
+  "dias_laborales": [1, 2, 3, 4, 5, 6],
+  "tomtom_key": ""
+}

@@ -14,12 +14,28 @@ Panel web táctil para controlar luces **Tuya / Smart Life** por la red local, s
 - Brillo, color (arcoíris) y tres blancos (cálido, neutro, frío).
 - Se instala como app a pantalla completa y pide que la pantalla no se apague.
 - Si una luz no responde, la muestra "Sin conexión" y sigue reintentando.
+- Después de las luces, una ventana con **a qué hora salir** para llegar al trabajo (por defecto a las 8:00, de lunes a sábado) según el tráfico en vivo, y otra con el **clima** en casa y en el trabajo.
 - Modo `--demo` con luces simuladas, para probarlo sin hardware.
+
+## Viaje al trabajo y clima
+<p align="center">
+  <img src="docs/panel-4.png" width="230" alt="Hora de salida al trabajo según el tráfico">
+  <img src="docs/panel-5.png" width="230" alt="Clima en casa y en el trabajo">
+</p>
+
+Copiar `lugares.example.json` como `lugares.json` y completar:
+- `casa` y `trabajo`: la `direccion` (se busca una sola vez en OpenStreetMap) o directamente `lat` y `lon`.
+- `llegada`: hora a la que querés llegar (`"08:00"`) y `dias_laborales` (1 = lunes … 7 = domingo).
+- `tomtom_key`: clave gratis de [developer.tomtom.com](https://developer.tomtom.com) (2.500 consultas por día, el panel usa unas 300). Se usa para calcular la hora de salida con tráfico.
+
+El clima sale de [Open-Meteo](https://open-meteo.com), que es gratis y no necesita clave. `lugares.json` está en el `.gitignore` porque tiene tus direcciones.
 
 ## Cómo funciona
 - `server.py`: servidor HTTP en Python (solo librería estándar) que habla con las luces por LAN con [TinyTuya](https://github.com/jasonacox/tinytuya) y expone una API chica:
   - `GET /api/luces`: estado de todas las luces.
   - `POST /api/luces/<id>`: cambia `encendida`, `brillo` (1-100), `color` (`#rrggbb`) o `blanco` (0 cálido - 100 frío).
+  - `GET /api/viaje`: hora de salida, minutos de viaje y demora por tráfico.
+  - `GET /api/clima`: clima actual y del día en casa y en el trabajo.
 - `web/`: la página del panel (HTML, CSS y JS sin dependencias ni paso de compilación).
 
 ## Probarlo sin luces
