@@ -1,21 +1,23 @@
 # panel-luces
 
-Panel web táctil para controlar luces **Tuya / Smart Life** por la red local, sin la app oficial y sin pasar por la nube. Pensado para correr en un celular Android viejo (con Termux) y dejarlo como panel fijo en la pared.
+Panel web táctil para la casa: controla luces **Tuya / Smart Life** por la red local (sin la app oficial y sin pasar por la nube), dice a qué hora salir al trabajo según el tráfico y muestra el clima. Pensado para correr en un celular Android viejo (con Termux) y dejarlo como panel fijo en la pared.
 
 <p align="center">
+  <img src="docs/panel-6.png" width="230" alt="Pantalla de inicio con escenas, luces, viaje y clima">
   <img src="docs/panel-1.png" width="230" alt="Luz en blanco cálido">
-  <img src="docs/panel-2.png" width="230" alt="Luz en violeta">
-  <img src="docs/panel-3.png" width="230" alt="Luz en celeste">
+  <img src="docs/panel-7.png" width="230" alt="Modo noche">
 </p>
 
 ## Qué hace
-- **Una luz por pantalla**: se desliza el dedo para cambiar de luz.
-- Botón de encendido grande que brilla con el color de la luz.
-- Brillo, color (arcoíris) y tres blancos (cálido, neutro, frío).
+- **Pantalla de inicio con mosaicos**: reloj grande, escenas, una tarjeta por luz y tarjetas de viaje y clima. Tocar una tarjeta abre su pantalla completa; "Inicio" (o el botón atrás de Android) vuelve. Si nadie toca nada por 2 minutos, vuelve sola al inicio.
+- **Escenas** para todas las luces juntas: Apagar, Prender, Relax, Tenue y Cine (se cambian en `ESCENAS`, dentro de `web/index.html`).
+- **Tarjeta de cada luz**: se tiñe con el color de la luz cuando está prendida; el botón de la esquina la prende o apaga sin entrar.
+- **Pantalla de cada luz**: botón de encendido grande que brilla con el color de la luz, brillo, color (arcoíris) y tres blancos (cálido, neutro, frío).
+- **Modo noche**: pantalla negra con un reloj tenue y la hora de salida de mañana. Se activa desde su tarjeta o solo entre las 23:00 y las 6:30 si nadie toca la pantalla por 2 minutos (horario en `NOCHE_DESDE` / `NOCHE_HASTA`). Tocar la pantalla lo cierra.
+- **A qué hora salir** para llegar al trabajo (por defecto a las 8:00, de lunes a sábado) según el tráfico en vivo, y el **clima** en casa y en el trabajo.
 - Se instala como app a pantalla completa y pide que la pantalla no se apague.
 - Si una luz no responde, la muestra "Sin conexión" y sigue reintentando.
-- Después de las luces, una ventana con **a qué hora salir** para llegar al trabajo (por defecto a las 8:00, de lunes a sábado) según el tráfico en vivo, y otra con el **clima** en casa y en el trabajo.
-- Modo `--demo` con luces simuladas, para probarlo sin hardware.
+- Modo `--demo` con luces y datos simulados, para probarlo sin hardware.
 
 ## Viaje al trabajo y clima
 <p align="center">

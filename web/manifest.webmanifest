@@ -1,6 +1,6 @@
 {
-  "name": "Mis luces",
-  "short_name": "Luces",
+  "name": "Mi casa",
+  "short_name": "Casa",
   "start_url": "/",
   "display": "fullscreen",
   "display_override": ["fullscreen", "standalone"],
