@@ -40,6 +40,14 @@
   .escena { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 20px; padding: 12px 2px 10px;
             display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; color: var(--suave); transition: all .2s; }
   .escena span { font-size: 28px; line-height: 1; }
+  .escenas.sin-luces .escena { opacity: .35; pointer-events: none; }
+  /* Selector de luces para las escenas */
+  .selector { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .chip { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px 7px 10px; font-size: 14px;
+          color: var(--suave); display: flex; align-items: center; gap: 7px; transition: all .2s; }
+  .chip i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--suave); display: grid; place-items: center; font-style: normal; font-size: 11px; }
+  .chip.sel { background: rgba(255, 255, 255, .9); color: #101218; border-color: transparent; }
+  .chip.sel i { background: #101218; border-color: #101218; color: #fff; }
   .escena:active, .escena.tocada { background: rgba(255, 255, 255, .2); color: var(--texto); transform: scale(.96); }
 
   .grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -165,7 +173,7 @@
 
 <main id="inicio">
   <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
-  <section class="bloque"><h2>Escenas</h2><div class="escenas" id="escenas"></div></section>
+  <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
   <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
   <section class="bloque"><h2>Hoy</h2>
     <div class="grilla">
@@ -337,6 +345,16 @@ function crear(l) {
   m.querySelector('.m-power').onclick = alternar;
   grillaLuces.appendChild(m);
   mosaicos[l.id] = m;
+
+  // Chip para elegir si esta luz entra en las escenas
+  const chip = document.createElement('button');
+  chip.className = 'chip';
+  chip.innerHTML = '<i></i><span></span>';
+  chip.querySelector('span').textContent = l.nombre;
+  chip.dataset.id = l.id;
+  chip.onclick = () => { fueraDeEscenas[l.id] = !fueraDeEscenas[l.id]; guardarSelector(); pintarSelector(); };
+  document.getElementById('selector').appendChild(chip);
+  pintarSelector();
   s.dataset.id = l.id;
   return tarjetas[l.id] = s;
 }
@@ -384,9 +402,23 @@ refrescar();
 setInterval(refrescar, 4000);
 
 // ---- escenas ----
+// Se guardan las luces que NO entran en las escenas, así una luz nueva entra sola
+let fueraDeEscenas = {};
+try { fueraDeEscenas = JSON.parse(localStorage.getItem('fuera-de-escenas')) || {}; } catch (e) {}
+function guardarSelector() { try { localStorage.setItem('fuera-de-escenas', JSON.stringify(fueraDeEscenas)); } catch (e) {} }
+function pintarSelector() {
+  let alguna = false;
+  document.querySelectorAll('.chip').forEach(c => {
+    const sel = !fueraDeEscenas[c.dataset.id];
+    c.classList.toggle('sel', sel);
+    c.querySelector('i').textContent = sel ? '✓' : '';
+    alguna = alguna || sel;
+  });
+  document.getElementById('escenas').classList.toggle('sin-luces', !alguna);
+}
 function aplicarEscena(cambios) {
   for (const s of Object.values(tarjetas)) {
-    if (s.classList.contains('offline')) continue;
+    if (s.classList.contains('offline') || fueraDeEscenas[s.dataset.id]) continue;
     s.classList.toggle('on', cambios.encendida);          // respuesta inmediata en la pantalla
     if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
     if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
@@ -497,10 +529,12 @@ async function refrescarClima() {
     }
     const t = TIEMPO.find(x => x[0].includes(c.codigo)) || [[], 'Variable', '🌡️', '🌡️'];
     const icono = c.dia ? t[2] : t[3];
+    // El estado es el de ahora; si no llueve pero es probable que llueva pronto, se avisa
+    const desc = t[1] + (c.codigo < 51 && c.lluvia_3h >= 50 ? ', puede llover pronto' : '');
     caja.innerHTML = `
       <div class="arriba"><span>${c.nombre}</span><span>${grados(c.min)} / ${grados(c.max)}</span></div>
-      <div class="medio"><span class="icono">${icono}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${t[1]}</span></div>
-      <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia ${c.lluvia ?? 0}%</span>
+      <div class="medio"><span class="icono">${icono}</span><span class="temp">${grados(c.temp)}</span><span class="desc">${desc}</span></div>
+      <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia próx. 3 h ${c.lluvia_3h}%</span><span>Próx. 12 h ${c.lluvia_12h}%</span>
         <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
     filas.push(`<div class="fila"><span>${icono}</span><b>${grados(c.temp)}</b><span>${c.nombre}</span></div>`);
   }

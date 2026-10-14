@@ -11,6 +11,7 @@ import ssl
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
@@ -150,10 +151,16 @@ except ImportError:
     SSL = ssl.create_default_context()
 
 
-def pedir_json(url):
+def pedir_json(url, intentos=2):
     req = urllib.request.Request(url, headers={"User-Agent": "panel-luces/1.0 (panel casero)"})
-    with urllib.request.urlopen(req, timeout=10, context=SSL) as r:
-        return json.load(r)
+    for n in range(intentos):
+        try:
+            with urllib.request.urlopen(req, timeout=10, context=SSL) as r:
+                return json.load(r)
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if n == intentos - 1:
+                raise
+            time.sleep(1)
 
 
 class Cache:
@@ -233,14 +240,17 @@ def calcular_viaje():
 def clima_de(lugar):
     la, lo = coordenadas(lugar)
     d = pedir_json(
-        f"https://api.open-meteo.com/v1/forecast?latitude={la}&longitude={lo}&timezone=auto&forecast_days=1"
+        f"https://api.open-meteo.com/v1/forecast?latitude={la}&longitude={lo}&timezone=auto&forecast_days=2"
         "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,is_day"
-        "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max")
-    c, dia = d["current"], d["daily"]
+        "&hourly=precipitation_probability&daily=temperature_2m_max,temperature_2m_min")
+    c, dia, h = d["current"], d["daily"], d["hourly"]
+    # Probabilidad de lluvia de las próximas horas (no la del día entero, que incluye horas que ya pasaron)
+    i = h["time"].index(c["time"][:13] + ":00")
+    prox = [x or 0 for x in h["precipitation_probability"][i:]]
     return {"temp": c["temperature_2m"], "sensacion": c["apparent_temperature"], "humedad": c["relative_humidity_2m"],
             "codigo": c["weather_code"], "viento": c["wind_speed_10m"], "dia": bool(c["is_day"]),
             "max": dia["temperature_2m_max"][0], "min": dia["temperature_2m_min"][0],
-            "lluvia": dia["precipitation_probability_max"][0]}
+            "lluvia_3h": max(prox[:3]), "lluvia_12h": max(prox[:12])}
 
 
 def calcular_clima():
@@ -250,12 +260,14 @@ def calcular_clima():
         if DEMO:
             salida[clave] = {"nombre": nombre, "ok": True, "temp": 18.4 if clave == "casa" else 20.1, "sensacion": 17.2,
                              "humedad": 64, "codigo": 2 if clave == "casa" else 61, "viento": 12, "dia": True,
-                             "max": 22, "min": 11, "lluvia": 10 if clave == "casa" else 70}
+                             "max": 22, "min": 11, "lluvia_3h": 10 if clave == "casa" else 70,
+                             "lluvia_12h": 30 if clave == "casa" else 80}
             continue
         try:
             salida[clave] = {"nombre": nombre, "ok": True, **clima_de(cfg.get(clave) or {})}
         except Exception as e:
             salida[clave] = {"nombre": nombre, "ok": False, "error": str(e)}
+    salida["ok"] = all(v["ok"] for v in salida.values())   # si algo falló, la caché lo reintenta antes
     return salida
 
 
