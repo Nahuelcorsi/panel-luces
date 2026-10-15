@@ -715,10 +715,19 @@ def calentar_local():
 
 
 def pensar_gemini(cfg, sistema, mensajes):
-    d = pedir_post(f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-latest')}:generateContent", {
-        "systemInstruction": {"parts": [{"text": sistema}]},
-        "contents": [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in mensajes],
-        "generationConfig": {"maxOutputTokens": 800}}, {"x-goog-api-key": cfg["gemini_key"]}, 60)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
+    cuerpo = {"systemInstruction": {"parts": [{"text": sistema}]},
+              "contents": [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in mensajes],
+              "generationConfig": {"maxOutputTokens": 800}}
+    for intento in range(3):
+        try:
+            d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, 60)
+            break
+        except RuntimeError as e:
+            # 503 (alta demanda) y 429 (límite por minuto) suelen pasar solos en unos segundos
+            if intento == 2 or not str(e).startswith(("503", "429")):
+                raise
+            time.sleep(2 + intento * 2)
     return "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []))
 
 
@@ -745,7 +754,7 @@ def cerebros_disponibles(cfg):
     if cfg.get("local_url"):
         orden.append(("local", lambda s, m: pensar_local(cfg, s, m), cfg.get("local_modelo", "gemma3:12b")))
     if cfg.get("gemini_key"):
-        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m), cfg.get("gemini_modelo", "gemini-flash-latest")))
+        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m), cfg.get("gemini_modelo", "gemini-flash-lite-latest")))
     if DEMO and not orden:
         orden.append(("demo", pensar_demo, "demo"))
     return orden
