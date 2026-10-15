@@ -76,6 +76,12 @@ body.kiosko #app { width: 100vw; height: 100vh; justify-content: center; gap: 0;
 body.kiosko #cara { width: min(96vw, 84vh); }
 body.kiosko #burbuja { background: none; text-align: center; font-size: 18px; min-height: 0; padding: 0 16px; opacity: .8; }
 body.kiosko #chat, body.kiosko #ajustes { display: none; }
+#memoria { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
+#recuerdos { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 30vh; overflow-y: auto; }
+#recuerdos li { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; }
+#recuerdos button { padding: 4px 9px; border-radius: 8px; flex: none; }
+.aviso-memoria { margin: 10px 0 0; font-size: 12.5px; opacity: .6; }
+
 /* Dentro del panel de casa (index.html?panel): sin ajustes, el cerebro se configura en el servidor del panel */
 body.panel { background: transparent; }
 body.panel #ajustes { display: none; }

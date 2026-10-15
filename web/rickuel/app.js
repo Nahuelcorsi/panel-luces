@@ -349,6 +349,7 @@ async function conversar(texto) {
     const limpio = m ? crudo.slice(m[0].length) : crudo;
     mostrar(limpio, m?.[1].toLowerCase());
     decir(limpio);
+    cargarRecuerdos();   // por si le pediste que se acuerde de algo o lo olvide
   } catch (err) {
     mostrar(`Uy, algo falló: ${err.message}`, 'triste');
   }
@@ -359,6 +360,31 @@ $('chat').onsubmit = (e) => {
   conversar($('texto').value);
   $('texto').value = '';
 };
+
+// ===== Memoria (modo panel) =====
+// El servidor del panel guarda los datos que Rickuel recuerda de vos; acá se ven y se pueden borrar.
+async function cargarRecuerdos() {
+  if (!modoPanel) return;
+  try {
+    const r = await fetch('/api/memoria');
+    if (!r.ok) return;
+    const lista = await r.json();
+    $('recuerdos').replaceChildren(...lista.map((x) => {
+      const li = document.createElement('li');
+      li.append(x.texto);
+      const b = Object.assign(document.createElement('button'), { textContent: '✕', title: 'Olvidar esto' });
+      b.onclick = async () => {
+        await fetch('/api/memoria/borrar', { method: 'POST', body: JSON.stringify({ id: x.id }) });
+        cargarRecuerdos();
+      };
+      li.append(b);
+      return li;
+    }));
+    $('memoria-cuenta').textContent = lista.length ? ` (${lista.length})` : '';
+    $('memoria').hidden = false;
+  } catch {}
+}
+listoPi.then(cargarRecuerdos);
 
 // ===== Ajustes =====
 const CAMPOS = { cerebro: 'cerebro', geminiKey: 'gemini-key', geminiModelo: 'gemini-modelo', localUrl: 'local-url', localModelo: 'local-modelo', apiKey: 'api-key', nombre: 'nombre' };
