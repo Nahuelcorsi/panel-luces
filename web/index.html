@@ -192,6 +192,9 @@
   #voz .respuesta { font-size: 18px; color: var(--suave); max-width: 420px; }
   #voz .ayuda { font-size: 14px; color: rgba(244, 246, 250, .4); max-width: 420px; line-height: 1.7; }
 
+  #sin-servidor { position: fixed; z-index: 4; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); padding: 12px 16px;
+                  border-radius: 16px; background: #5a3a12; color: #ffe2b8; font-size: 15px; text-align: center; box-shadow: 0 6px 20px rgba(0, 0, 0, .4); }
+
   /* ---- Modo noche: pantalla negra con un reloj tenue ---- */
   #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column;
            align-items: center; justify-content: center; color: rgba(255, 255, 255, .32); cursor: pointer; }
@@ -206,6 +209,7 @@
 </head>
 <body>
 <div id="ambiente"></div>
+<div id="sin-servidor" class="oculta">Esperando al servidor del panel… Si recién prendiste el celular, tarda menos de un minuto.</div>
 
 <main id="inicio">
   <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
@@ -458,8 +462,13 @@ function pintar(l) {
   textoEstado(s);
 }
 
+// Aviso cuando el servidor no responde (por ejemplo, justo después de prender el celular)
+const aviso = document.getElementById('sin-servidor');
 async function refrescar() {
-  try { (await (await fetch('/api/luces')).json()).forEach(pintar); } catch (e) {}
+  try {
+    (await (await fetch('/api/luces')).json()).forEach(pintar);
+    aviso.classList.add('oculta');
+  } catch (e) { aviso.classList.remove('oculta'); }
 }
 refrescar();
 setInterval(refrescar, 4000);
@@ -884,6 +893,9 @@ async function pedirCandado() {
 }
 pedirCandado();
 document.addEventListener('visibilitychange', pedirCandado);
+
+// Guarda una copia de la página para que la app abra aunque el servidor todavía no haya arrancado
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
 </body>
 </html>
