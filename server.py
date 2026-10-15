@@ -489,5 +489,5 @@ if __name__ == "__main__":
     except OSError:
         sys.exit(f"El puerto {PUERTO} ya está en uso: cerrá el otro servidor del panel antes de abrir este.")
     threading.Thread(target=bucle_automatico, daemon=True).start()
-    print(f"Panel de luces en http://localhost:{PUERTO}" + (" (modo demo)" if DEMO else ""))
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), f"Panel de luces en http://localhost:{PUERTO}" + (" (modo demo)" if DEMO else ""), flush=True)
     servidor.serve_forever()
