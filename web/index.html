@@ -178,6 +178,11 @@
   .probar:active { background: rgba(255, 255, 255, .25); }
   .explica { color: var(--suave); font-size: 14px; text-align: center; }
 
+  /* ---- Rickuel: la pantalla es la página de Rickuel (web/rickuel/) dentro de un marco ---- */
+  .luz.rickuel { padding: 0; }
+  .luz.rickuel > iframe { max-width: none; width: 100%; height: 100%; border: 0; background: transparent; }
+  body.en-rickuel #microfono { display: none; }   /* Rickuel tiene su propio micrófono */
+
   /* ---- Hablarle al panel ---- */
   #microfono { position: fixed; z-index: 5; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%;
                border: 0; background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); display: grid; place-items: center; }
@@ -240,6 +245,10 @@
       <button class="mosaico m-clima" id="m-clima">
         <div class="m-icono">🌡️</div>
         <div class="filas"></div>
+      </button>
+      <button class="mosaico ancho" id="m-rickuel">
+        <div class="m-icono">🧪</div>
+        <div><div class="m-titulo" style="margin:0">Rickuel</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
       </button>
       <button class="mosaico ancho" id="m-noche">
         <div class="m-icono">🌙</div>
@@ -334,6 +343,7 @@ function abrir(s) {
   abierta = s;
   detalle.classList.remove('oculta');
   inicio.classList.add('oculta');
+  document.body.classList.toggle('en-rickuel', s.classList.contains('rickuel'));
   if (!history.state) history.pushState({ detalle: true }, '');
   pintarAmbiente();
 }
@@ -341,6 +351,7 @@ function cerrar() {
   if (!abierta) return;
   abierta.classList.remove('activa');
   abierta = null;
+  document.body.classList.remove('en-rickuel');
   detalle.classList.add('oculta');
   inicio.classList.remove('oculta');
   pintarAmbiente();
@@ -569,6 +580,24 @@ async function refrescarViaje() {
 refrescarViaje();
 setInterval(refrescarViaje, 2 * 60000);
 setInterval(pintarViaje, 30000);   // para que "Salí en X min" avance solo
+
+// ---- ventana: Rickuel (la página de web/rickuel/ en un marco; se carga recién al abrirla) ----
+const rickuel = document.createElement('section');
+rickuel.className = 'luz rickuel';
+rickuel.dataset.ambiente = '#1b3a22';
+rickuel.innerHTML = '<iframe title="Rickuel" allow="microphone; autoplay"></iframe>';
+detalle.appendChild(rickuel);
+document.getElementById('m-rickuel').onclick = () => {
+  const marco = rickuel.querySelector('iframe');
+  if (!marco.getAttribute('src')) {
+    marco.src = '/rickuel/?panel';
+    // Lo que se toca o escribe dentro del marco no llega a esta página: se avisa a mano para que no vuelva solo al inicio
+    marco.onload = () => {
+      try { for (const ev of ['pointerdown', 'keydown']) marco.contentWindow.addEventListener(ev, () => { ultimoToque = Date.now(); }, true); } catch (e) {}
+    };
+  }
+  abrir(rickuel);
+};
 
 // ---- ventana: clima en casa y en el trabajo ----
 const clima = document.createElement('section');

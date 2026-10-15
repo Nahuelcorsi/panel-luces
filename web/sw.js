@@ -11,7 +11,7 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;   // los datos siempre en vivo
+  if (e.request.method !== 'GET' || url.pathname.startsWith('/api/') || url.pathname === '/salud') return;   // los datos siempre en vivo
   e.respondWith(
     fetch(e.request)
       .then(r => { const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); return r; })

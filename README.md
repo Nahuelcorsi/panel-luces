@@ -83,6 +83,16 @@ Abrir `http://localhost:8080`.
 4. Abrir `http://localhost:8080` en Chrome e instalarlo como app (menú → Instalar app).
 5. Para que arranque solo al prender el celular, usar [Termux:Boot](https://github.com/termux/termux-boot) con un script en `~/.termux/boot/` que ejecute `iniciar.sh`.
 
+## Rickuel: charlar y pedirle cosas de la casa
+El mosaico «Rickuel» del inicio abre una pantalla con la cara de Rickuel (el proyecto *compañero de escritorio*; su página vive copiada en `web/rickuel/`). Se le habla o escribe, y además de charlar puede **manejar las luces y las escenas**: el servidor le pasa el estado de la casa (luces, clima, hora de salida, rutinas) y ejecuta las acciones que él pida. Solo acepta las de una lista cerrada (prender, apagar, brillo, color, blanco, escenas); las rutinas no las toca.
+
+El cerebro se configura en `rickuel.json` (copialo de `rickuel.example.json`; está en el `.gitignore`):
+1. **La PC de la casa con Ollama** (`local_url` y `local_modelo`, por ejemplo `gemma3:12b`), si está prendida.
+2. **Gemini gratis** (`gemini_key`), si la PC está apagada.
+3. Sin ninguno, Rickuel avisa que no tiene cerebro; los comandos de voz fijos del botón del micrófono siguen andando.
+
+Cada charla se guarda en `charlas.jsonl` (también en el `.gitignore`) para entrenar más adelante un modelo propio. Con `--demo` y sin `rickuel.json` usa un cerebro de mentira, solo para probar la pantalla.
+
 ## Seguridad
 `devices.json` contiene las **claves locales** de tus luces y `tinytuya.json` las credenciales de tu cuenta de desarrollador de Tuya. Están en el `.gitignore`: no los subas ni los compartas. El servidor no tiene autenticación, así que usalo solo dentro de tu red de confianza.
 
