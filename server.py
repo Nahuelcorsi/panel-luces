@@ -687,8 +687,31 @@ def pensar_local(cfg, sistema, mensajes):
         raise RuntimeError("la PC no está prendida")
     d = pedir_post(f"{url}/api/chat", {
         "model": cfg.get("local_modelo", "gemma3:12b"), "stream": False, "options": {"num_predict": 300},
-        "messages": [{"role": "system", "content": sistema}, *mensajes]}, {}, cfg.get("local_espera", 90))
+        "keep_alive": cfg.get("local_mantener", "30m"),
+        "messages": [{"role": "system", "content": sistema}, *mensajes]}, {}, cfg.get("local_espera", 120))
     return d.get("message", {}).get("content", "")
+
+
+CALENTADO = {"hasta": 0}
+
+
+def calentar_local():
+    """Carga el modelo de la PC en memoria de antemano: si estaba descargado, la primera respuesta tarda ~1 minuto."""
+    cfg = cargar_rickuel()
+    if not cfg.get("local_url") or time.time() < CALENTADO["hasta"]:
+        return
+    CALENTADO["hasta"] = time.time() + 120
+
+    def trabajo():
+        try:
+            url = cfg["local_url"].rstrip("/")
+            host = urllib.parse.urlparse(url)
+            socket.create_connection((host.hostname, host.port or 80), timeout=1.5).close()
+            pedir_post(f"{url}/api/generate", {"model": cfg.get("local_modelo", "gemma3:12b"),
+                                               "keep_alive": cfg.get("local_mantener", "30m")}, {}, 180)
+        except Exception as e:
+            anotar(f"rickuel: no pude precargar el modelo: {e}")
+    threading.Thread(target=trabajo, daemon=True).start()
 
 
 def pensar_gemini(cfg, sistema, mensajes):
@@ -778,6 +801,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/memoria":
             return self._json(leer_memoria())
         if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
+            calentar_local()        # y de paso se va cargando el modelo mientras Nahuel escribe
             return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
         self._estatico()
 
