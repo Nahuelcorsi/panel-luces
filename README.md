@@ -91,6 +91,8 @@ El cerebro se configura en `rickuel.json` (copialo de `rickuel.example.json`; es
 2. **Gemini gratis** (`gemini_key`), si la PC está apagada.
 3. Sin ninguno, Rickuel avisa que no tiene cerebro; los comandos de voz fijos del botón del micrófono siguen andando.
 
+**Memoria:** Rickuel guarda datos duraderos tuyos y de la casa («acordate de que de noche me gusta la luz cálida») en `memoria.json` (en el `.gitignore`) y se los pasa al modelo en cada charla. Se ven y se borran con la ✕ en «Lo que recuerdo de vos», debajo del chat, o diciéndole «olvidá…». Guarda hasta 60 datos de 160 caracteres, y se le pide que no guarde claves ni datos de tarjetas.
+
 Cada charla se guarda en `charlas.jsonl` (también en el `.gitignore`) para entrenar más adelante un modelo propio. Con `--demo` y sin `rickuel.json` usa un cerebro de mentira, solo para probar la pantalla.
 
 ## Seguridad

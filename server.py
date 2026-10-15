@@ -462,6 +462,72 @@ ESCENAS = {
 }
 BLANCOS = {"calido": 0, "neutro": 50, "frio": 100}
 
+# Memoria: datos duraderos que Rickuel recuerda de Nahuel y de la casa (memoria.json, en .gitignore).
+# Los guarda cuando Nahuel se lo pide o cuenta algo duradero; se ven y se borran desde la pantalla de Rickuel.
+RUTA_MEMORIA = os.path.join(BASE, "memoria-demo.json" if DEMO else "memoria.json")
+LOCK_MEMORIA = threading.Lock()
+MAX_RECUERDOS = 60
+MAX_LARGO = 160
+
+
+def leer_memoria():
+    try:
+        with open(RUTA_MEMORIA, encoding="utf-8") as f:
+            lista = json.load(f)
+        return [r for r in lista if isinstance(r, dict) and r.get("texto")]
+    except (OSError, ValueError):
+        return []
+
+
+def escribir_memoria(lista):
+    with open(RUTA_MEMORIA, "w", encoding="utf-8") as f:
+        json.dump(lista, f, ensure_ascii=False, indent=2)
+
+
+def recordar(texto):
+    """Guarda un dato nuevo. Devuelve (ok, detalle)."""
+    texto = " ".join(str(texto).split())[:MAX_LARGO]
+    if len(texto) < 4:
+        return False, "no entendí qué recordar"
+    with LOCK_MEMORIA:
+        lista = leer_memoria()
+        clave = sin_tildes(texto)
+        if any(sin_tildes(r["texto"]) == clave for r in lista):
+            return True, "ya lo recordaba"
+        if len(lista) >= MAX_RECUERDOS:
+            return False, "la memoria está llena, borrá algo de la lista"
+        lista.append({"id": max([r.get("id", 0) for r in lista] + [0]) + 1, "texto": texto,
+                      "fecha": datetime.now().astimezone().isoformat(timespec="seconds")})
+        escribir_memoria(lista)
+    return True, ""
+
+
+def olvidar(fragmento):
+    """Borra los recuerdos que contengan el fragmento. Devuelve (ok, detalle)."""
+    clave = sin_tildes(str(fragmento))
+    if len(clave) < 3:
+        return False, "no entendí qué olvidar"
+    with LOCK_MEMORIA:
+        lista = leer_memoria()
+        quedan = [r for r in lista if clave not in sin_tildes(r["texto"])]
+        if len(quedan) == len(lista):
+            return False, f"no recordaba nada de «{fragmento}»"
+        escribir_memoria(quedan)
+    return True, ""
+
+
+def borrar_recuerdo(ident):
+    with LOCK_MEMORIA:
+        escribir_memoria([r for r in leer_memoria() if r.get("id") != ident])
+
+
+def contexto_memoria():
+    lista = leer_memoria()
+    if not lista:
+        return "Todavía no recordás nada en particular de Nahuel."
+    return "Esto es lo que recordás de Nahuel y de la casa (usalo con naturalidad, sin recitarlo):\n" + \
+        "\n".join(f"- {r['texto']}" for r in lista)
+
 INSTRUCCIONES_CASA = """
 Además de charlar, manejás la casa de Nahuel. Abajo tenés el estado actual.
 Para hacer algo, escribí al FINAL de tu respuesta una marca por acción, con este formato exacto:
@@ -474,6 +540,12 @@ Las marcas solo van cuando Nahuel te ORDENA hacer algo ("apagá", "prendé", "po
 una pregunta nunca cambia nada. Ante la duda, no pongas marca.
 Tu texto se lee en voz alta y las marcas se quitan solas: no las nombres ni las expliques.
 Solo podés hacer lo de esta lista; no inventes otras acciones ni otras luces.
+
+También tenés memoria. Si Nahuel te pide que te acuerdes de algo, o cuenta un dato duradero sobre él o la casa
+(gustos, horarios, costumbres), agregá al final [memoria:frase corta y clara en tercera persona].
+Ejemplo: [memoria:Nahuel prefiere la luz cálida de noche]
+Si te pide que olvides algo: [olvidar:palabra clave]. No guardes charla pasajera, claves, contraseñas ni datos de tarjetas,
+ni algo que ya figura en lo que recordás.
 Ejemplos:
 Nahuel: "apagá todo" -> "[feliz] Dale, a oscuras como un murciélago, uuurp. [accion:luz|todas|apagar]"
 Nahuel: "¿está prendida la lámpara?" -> "[neutral] Sí, al 80%, ¿no la ves o qué?"
@@ -567,19 +639,27 @@ def ejecutar_accion(partes):
     return (not fallas), ", ".join(fallas)
 
 
-MARCA = re.compile(r"\[\s*acci[oó]n\s*:([^\]]*)\]", re.IGNORECASE)
+MARCA = re.compile(r"\[\s*(acci[oó]n|memoria|olvidar)\s*:([^\]]*)\]", re.IGNORECASE)
 
 
 def sacar_acciones(crudo):
-    """Separa el texto hablado de las marcas de acción, ejecuta las marcas y avisa si alguna falló."""
+    """Separa el texto hablado de las marcas, ejecuta las marcas y avisa si alguna falló."""
     hechas = []
-    for m in MARCA.findall(crudo)[:MAX_ACCIONES]:
-        partes = [p.strip() for p in m.split("|")]
-        ok, detalle = ejecutar_accion(partes)
+    for tipo, m in MARCA.findall(crudo)[:MAX_ACCIONES]:
+        tipo = sin_tildes(tipo)
+        if tipo == "memoria":
+            partes = ["memoria", m.strip()]
+            ok, detalle = recordar(m)
+        elif tipo == "olvidar":
+            partes = ["olvidar", m.strip()]
+            ok, detalle = olvidar(m)
+        else:
+            partes = [p.strip() for p in m.split("|")]
+            ok, detalle = ejecutar_accion(partes)
         hechas.append({"accion": "|".join(partes), "ok": ok, "detalle": detalle})
         anotar(f"rickuel: {'|'.join(partes)} -> {'ok' if ok else 'falló: ' + detalle}")
     texto = " ".join(MARCA.sub("", crudo).split())
-    fallas = [h["detalle"] for h in hechas if not h["ok"]]
+    fallas = [h["detalle"] for h in hechas if not h["ok"] and h["detalle"]]
     if fallas:
         texto += " Ojo, no pude hacer algo: " + "; ".join(fallas) + "."
     return texto, hechas
@@ -628,6 +708,10 @@ def pensar_demo(sistema, mensajes):
         return "[feliz] Y se hizo la luz, como yo lo dije. [accion:luz|todas|encender]"
     if "cine" in t:
         return "[feliz] Modo cine, che. [accion:escena|cine]"
+    if "acordate" in t or "acuerdate" in t:
+        return "[feliz] Anotado, aunque tu memoria es un desastre. [memoria:Nahuel prefiere la luz cálida de noche]"
+    if "olvida" in t:
+        return "[neutral] Ya lo borré. [olvidar:luz cálida]"
     if "inventa" in t:
         return "[pensando] Probemos algo raro. [accion:luz|cocina|apagar]"
     return "[pensando] Estoy en modo demo, Nahuel: sin cerebro de verdad."
@@ -649,7 +733,8 @@ def pensar(sistema, mensajes):
     errores = []
     for nombre, usar, modelo in cerebros_disponibles(cargar_rickuel()):
         try:
-            crudo = usar(sistema + "\n" + INSTRUCCIONES_CASA + "\nEstado de la casa:\n" + contexto_casa(), mensajes)
+            crudo = usar(sistema + "\n" + INSTRUCCIONES_CASA + "\n" + contexto_memoria() +
+                         "\n\nEstado de la casa:\n" + contexto_casa(), mensajes)
         except Exception as e:
             errores.append(f"{nombre}: {e}")
             anotar(f"rickuel: falló el cerebro {nombre}: {e}")
@@ -690,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(CLIMA.obtener())
         if self.path == "/api/ajustes":
             return self._json({**leer_ajustes(), "estado": ESTADO})
+        if self.path == "/api/memoria":
+            return self._json(leer_memoria())
         if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
             return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
         self._estatico()
@@ -722,6 +809,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**guardar_ajustes(cuerpo), "estado": ESTADO})
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+        if self.path == "/api/memoria/borrar":
+            borrar_recuerdo(cuerpo.get("id"))
+            return self._json(leer_memoria())
         if self.path == "/cerebro":
             try:
                 texto, acciones, cerebro, crudo = pensar(cuerpo["sistema"], cuerpo["mensajes"])
