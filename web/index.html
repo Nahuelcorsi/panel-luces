@@ -644,6 +644,7 @@ function pantallaRutina(modo, titulo, explica) {
       <div class="tarjeta"><div class="etiqueta">Días</div><div class="opciones dias"></div></div>` : ''}
     <div class="tarjeta"><div class="etiqueta">Luces</div><div class="opciones luces"></div></div>
     <div class="tarjeta"><div class="etiqueta minutos-titulo"></div><div class="opciones minutos"></div></div>
+    <div class="tarjeta renglon"><span class="ahora"></span></div>
     <div class="explica"></div>
     <button class="probar">Probar ahora (versión rápida)</button>`;
   s.querySelector('.explica').textContent = explica;
@@ -681,6 +682,18 @@ function chipsOpcion(cont, valores, elegidos, alTocar) {
 }
 const alternarEn = (lista, v) => lista.includes(v) ? lista.filter(x => x !== v) : [...lista, v];
 
+function proximoDespertador(a) {
+  const [h, m] = a.hora.split(':').map(Number), ahora = new Date();
+  for (let n = 0; n < 8; n++) {
+    const d = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + n, h, m);
+    const iso = d.getDay() || 7;
+    if (d > ahora && a.dias.includes(iso)) {
+      const inicio = hora(new Date(d - a.minutos * 60000));
+      return `${n === 0 ? 'hoy' : n === 1 ? 'mañana' : 'el ' + DIAS[d.getDay()]} de ${inicio} a ${a.hora}`;
+    }
+  }
+  return 'ningún día elegido';
+}
 function resumirDias(dias) {
   const orden = [...dias].sort();
   if (orden.join() === '1,2,3,4,5,6') return 'L a S';
@@ -709,11 +722,26 @@ function pintarRutinas() {
   const md = document.getElementById('m-despertador');
   md.querySelector('.m-grande').textContent = d.hora;
   md.querySelector('.m-sub').textContent = d.activo ? 'Despertador · ' + resumirDias(d.dias) : 'Despertador apagado';
+  // Qué está haciendo cada rutina ahora (lo informa el servidor)
+  const est = ajustes.estado || {};
+  for (const modo of ['despertador', 'trabajo']) {
+    const e = est[modo] || {}, a = ajustes[modo], caja = pantallas[modo].querySelector('.ahora');
+    let texto;
+    if (!a.activo) texto = 'Apagado';
+    else if (e.avance != null) texto = `En curso: ${Math.round(e.avance * 100)}% · termina a las ${hora(new Date(e.hasta))}`;
+    else if (modo === 'despertador') texto = `Próxima vez: ${proximoDespertador(a)}`;
+    else if (datosViaje && datosViaje.ok) {
+      const sal = new Date(datosViaje.salida);
+      texto = `Próxima vez: empieza a las ${hora(new Date(sal - a.minutos * 60000))} (salida ${hora(sal)})`;
+    } else texto = 'Esperando la hora de salida';
+    if (e.error) texto += ` · Último error: ${e.error}`;
+    caja.textContent = texto;
+  }
   const t = ajustes.trabajo;
   document.querySelector('#m-trabajo .m-sub').textContent = t.activo ? `Empieza ${t.minutos} min antes de salir` : 'Apagado';
 }
 cargarAjustes();
-setInterval(cargarAjustes, 60000);
+setInterval(cargarAjustes, 15000);   // para ver el avance de las rutinas casi en vivo
 
 // ---- hablarle al panel (usa el reconocimiento de voz de Chrome) ----
 const voz = document.getElementById('voz');
