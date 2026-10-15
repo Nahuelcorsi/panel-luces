@@ -7,10 +7,13 @@ Uso:
 import colorsys
 import json
 import os
+import re
+import socket
 import ssl
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -439,6 +442,236 @@ def probar(modo, ids):
     ENVIADO.clear()
 
 
+# ---- Rickuel: el cerebro del panel ----
+# La página de Rickuel (web/rickuel/) le manda la charla a /cerebro. Acá se arma el contexto de la casa, se elige
+# el cerebro que responda (la PC con Ollama si está prendida, si no Gemini) y se ejecutan las acciones que pida.
+# rickuel.json (en .gitignore) guarda la IP de la PC y la clave de Gemini; ver rickuel.example.json.
+
+RUTA_RICKUEL = os.path.join(BASE, "rickuel.json")
+RUTA_CHARLAS = os.path.join(BASE, "charlas-demo.jsonl" if DEMO else "charlas.jsonl")
+LOCK_CHARLAS = threading.Lock()
+MAX_ACCIONES = 6
+LOCAL_CAIDO = {"hasta": 0}   # si la PC no responde, no se vuelve a probar durante un rato (para no demorar cada charla)
+
+ESCENAS = {
+    "apagar": {"encendida": False},
+    "prender": {"encendida": True, "blanco": 50, "brillo": 100},
+    "relax": {"encendida": True, "blanco": 0, "brillo": 45},
+    "tenue": {"encendida": True, "blanco": 0, "brillo": 8},
+    "cine": {"encendida": True, "color": "#5b3cff", "brillo": 25},
+}
+BLANCOS = {"calido": 0, "neutro": 50, "frio": 100}
+
+INSTRUCCIONES_CASA = """
+Además de charlar, manejás la casa de Nahuel. Abajo tenés el estado actual.
+Para hacer algo, escribí al FINAL de tu respuesta una marca por acción, con este formato exacto:
+[accion:luz|NOMBRE|encender]   [accion:luz|NOMBRE|apagar]   [accion:luz|NOMBRE|brillo|50]
+[accion:luz|NOMBRE|color|#ff0000]   [accion:luz|NOMBRE|blanco|calido]  (calido, neutro o frio)
+[accion:escena|cine]  (apagar, prender, relax, tenue o cine; afecta a todas las luces)
+NOMBRE es el nombre de una luz de la lista, o "todas". El brillo va de 1 a 100.
+Las marcas solo van cuando Nahuel te ORDENA hacer algo ("apagá", "prendé", "poné", "subí el brillo"). Si charla o pregunta
+(por ejemplo "¿cómo está el dormitorio?", "¿está prendida?", "¿qué hora es?"), contestá con el estado de abajo y NO pongas ninguna marca:
+una pregunta nunca cambia nada. Ante la duda, no pongas marca.
+Tu texto se lee en voz alta y las marcas se quitan solas: no las nombres ni las expliques.
+Solo podés hacer lo de esta lista; no inventes otras acciones ni otras luces.
+Ejemplos:
+Nahuel: "apagá todo" -> "[feliz] Dale, a oscuras como un murciélago, uuurp. [accion:luz|todas|apagar]"
+Nahuel: "¿está prendida la lámpara?" -> "[neutral] Sí, al 80%, ¿no la ves o qué?"
+(Esta segunda respuesta no lleva marca porque Nahuel solo preguntó; no repitas esta nota.)
+"""
+
+
+def sin_tildes(t):
+    return "".join(c for c in unicodedata.normalize("NFD", t) if not unicodedata.combining(c)).lower().strip()
+
+
+def cargar_rickuel():
+    if not os.path.exists(RUTA_RICKUEL):
+        return {}
+    with open(RUTA_RICKUEL, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def resumen_luz(e):
+    if not e.get("online"):
+        return f"- {e['nombre']}: sin conexión"
+    return f"- {e['nombre']}: " + (f"prendida, brillo {e['brillo']}%, color {e['color']}" if e["encendida"] else "apagada")
+
+
+def contexto_casa():
+    """Estado de la casa que se le pasa a Rickuel en cada charla."""
+    ahora = datetime.now().astimezone()
+    dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    lineas = [f"Ahora es {dias[ahora.weekday()]} {ahora:%d/%m/%Y %H:%M}.", "Luces:"]
+    lineas += [resumen_luz(l.estado()) for l in LUCES.values()]
+    try:
+        v = VIAJE.obtener()
+        if v.get("ok"):
+            lineas.append(f"Para llegar al trabajo a las {datetime.fromisoformat(v['llegada']):%H:%M} tiene que salir a las "
+                          f"{datetime.fromisoformat(v['salida']):%H:%M} (viaje de {v['minutos']} min, {v['demora']} de demora por tráfico).")
+        c = CLIMA.obtener().get("casa", {})
+        if c.get("ok"):
+            lineas.append(f"Clima en casa: {c['temp']:.0f}°, sensación {c['sensacion']:.0f}°, máxima {c['max']:.0f}° y mínima {c['min']:.0f}°, "
+                          f"lluvia en las próximas 3 h: {c['lluvia_3h']}%.")
+        a = leer_ajustes()
+        d = a["despertador"]
+        lineas.append(f"Despertador: {'activado a las ' + d['hora'] if d['activo'] else 'apagado'}. "
+                      f"Modo trabajo: {'activado' if a['trabajo']['activo'] else 'apagado'}.")
+    except Exception as e:
+        anotar(f"rickuel: no pude armar todo el contexto: {e}")
+    return "\n".join(lineas)
+
+
+def luces_por_nombre(nombre):
+    n = sin_tildes(nombre)
+    if n in ("todas", "todo", "todos"):
+        return list(LUCES.values())
+    return [l for l in LUCES.values() if n in sin_tildes(l.nombre)]
+
+
+def ejecutar_accion(partes):
+    """Ejecuta una acción pedida por Rickuel. Solo se aceptan las de la lista; devuelve (ok, detalle)."""
+    tipo = sin_tildes(partes[0]) if partes else ""
+    if tipo == "escena" and len(partes) >= 2 and sin_tildes(partes[1]) in ESCENAS:
+        cambios = ESCENAS[sin_tildes(partes[1])]
+        luces = list(LUCES.values())
+    elif tipo == "luz" and len(partes) >= 3:
+        luces = luces_por_nombre(partes[1])
+        if not luces:
+            return False, f"no existe la luz «{partes[1]}»"
+        accion = sin_tildes(partes[2])
+        valor = partes[3].strip() if len(partes) > 3 else ""
+        if accion in ("encender", "prender"):
+            cambios = {"encendida": True}
+        elif accion == "apagar":
+            cambios = {"encendida": False}
+        elif accion == "brillo" and valor.isdigit():
+            cambios = {"encendida": True, "brillo": max(1, min(100, int(valor)))}
+        elif accion == "color" and re.fullmatch(r"#[0-9a-fA-F]{6}", valor):
+            cambios = {"encendida": True, "color": valor.lower()}
+        elif accion == "blanco" and sin_tildes(valor) in BLANCOS:
+            cambios = {"encendida": True, "blanco": BLANCOS[sin_tildes(valor)], "brillo": None}
+        else:
+            return False, "acción de luz no válida"
+    else:
+        return False, "acción no válida"
+    fallas = []
+    for luz in luces:
+        try:
+            c = dict(cambios)
+            if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
+                c["brillo"] = luz.estado().get("brillo") or 100
+            luz.aplicar(c)
+        except Exception as e:
+            fallas.append(f"{luz.nombre} ({e})")
+    return (not fallas), ", ".join(fallas)
+
+
+MARCA = re.compile(r"\[\s*acci[oó]n\s*:([^\]]*)\]", re.IGNORECASE)
+
+
+def sacar_acciones(crudo):
+    """Separa el texto hablado de las marcas de acción, ejecuta las marcas y avisa si alguna falló."""
+    hechas = []
+    for m in MARCA.findall(crudo)[:MAX_ACCIONES]:
+        partes = [p.strip() for p in m.split("|")]
+        ok, detalle = ejecutar_accion(partes)
+        hechas.append({"accion": "|".join(partes), "ok": ok, "detalle": detalle})
+        anotar(f"rickuel: {'|'.join(partes)} -> {'ok' if ok else 'falló: ' + detalle}")
+    texto = " ".join(MARCA.sub("", crudo).split())
+    fallas = [h["detalle"] for h in hechas if not h["ok"]]
+    if fallas:
+        texto += " Ojo, no pude hacer algo: " + "; ".join(fallas) + "."
+    return texto, hechas
+
+
+def pedir_post(url, cuerpo, headers, espera):
+    req = urllib.request.Request(url, data=json.dumps(cuerpo).encode(), headers={"content-type": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=espera, context=SSL) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"{e.code}: {e.read().decode(errors='replace')[:300]}")
+
+
+def pensar_local(cfg, sistema, mensajes):
+    """Ollama en la PC de la casa. Si no está prendida falla enseguida (no espera a que venza el timeout)."""
+    url = cfg["local_url"].rstrip("/")
+    if time.time() < LOCAL_CAIDO["hasta"]:
+        raise RuntimeError("la PC no respondió hace poco")
+    host = urllib.parse.urlparse(url)
+    try:
+        socket.create_connection((host.hostname, host.port or 80), timeout=1.5).close()
+    except OSError:
+        LOCAL_CAIDO["hasta"] = time.time() + 30
+        raise RuntimeError("la PC no está prendida")
+    d = pedir_post(f"{url}/api/chat", {
+        "model": cfg.get("local_modelo", "gemma3:12b"), "stream": False, "options": {"num_predict": 300},
+        "messages": [{"role": "system", "content": sistema}, *mensajes]}, {}, cfg.get("local_espera", 90))
+    return d.get("message", {}).get("content", "")
+
+
+def pensar_gemini(cfg, sistema, mensajes):
+    d = pedir_post(f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-latest')}:generateContent", {
+        "systemInstruction": {"parts": [{"text": sistema}]},
+        "contents": [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in mensajes],
+        "generationConfig": {"maxOutputTokens": 800}}, {"x-goog-api-key": cfg["gemini_key"]}, 60)
+    return "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []))
+
+
+def pensar_demo(sistema, mensajes):
+    """Cerebro de mentira para probar el panel sin PC ni claves (solo en modo demo)."""
+    t = sin_tildes(mensajes[-1]["content"])
+    if "apag" in t:
+        return "[enojado] Ya va, uuurp, otra vez a oscuras. [accion:luz|todas|apagar]"
+    if "prend" in t:
+        return "[feliz] Y se hizo la luz, como yo lo dije. [accion:luz|todas|encender]"
+    if "cine" in t:
+        return "[feliz] Modo cine, che. [accion:escena|cine]"
+    if "inventa" in t:
+        return "[pensando] Probemos algo raro. [accion:luz|cocina|apagar]"
+    return "[pensando] Estoy en modo demo, Nahuel: sin cerebro de verdad."
+
+
+def cerebros_disponibles(cfg):
+    orden = []
+    if cfg.get("local_url"):
+        orden.append(("local", lambda s, m: pensar_local(cfg, s, m), cfg.get("local_modelo", "gemma3:12b")))
+    if cfg.get("gemini_key"):
+        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m), cfg.get("gemini_modelo", "gemini-flash-latest")))
+    if DEMO and not orden:
+        orden.append(("demo", pensar_demo, "demo"))
+    return orden
+
+
+def pensar(sistema, mensajes):
+    """Prueba los cerebros en orden (PC, después Gemini). Devuelve (texto sin marcas, acciones, cerebro, texto crudo)."""
+    errores = []
+    for nombre, usar, modelo in cerebros_disponibles(cargar_rickuel()):
+        try:
+            crudo = usar(sistema + "\n" + INSTRUCCIONES_CASA + "\nEstado de la casa:\n" + contexto_casa(), mensajes)
+        except Exception as e:
+            errores.append(f"{nombre}: {e}")
+            anotar(f"rickuel: falló el cerebro {nombre}: {e}")
+            continue
+        if not crudo.strip():
+            errores.append(f"{nombre}: respuesta vacía")
+            continue
+        texto, acciones = sacar_acciones(crudo)
+        guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
+        return texto, acciones, f"{nombre}:{modelo}", crudo
+    raise RuntimeError("No tengo cerebro disponible (" + "; ".join(errores) + ")" if errores else
+                       "Falta configurar el cerebro en rickuel.json")
+
+
+def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
+    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel."""
+    with LOCK_CHARLAS, open(RUTA_CHARLAS, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"fecha": datetime.now().astimezone().isoformat(timespec="seconds"), "cerebro": cerebro,
+                            "modelo": modelo, "pregunta": pregunta, "respuesta": respuesta, "acciones": acciones},
+                           ensure_ascii=False) + "\n")
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, datos, codigo=200):
         cuerpo = json.dumps(datos).encode()
@@ -457,11 +690,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(CLIMA.obtener())
         if self.path == "/api/ajustes":
             return self._json({**leer_ajustes(), "estado": ESTADO})
+        if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
+            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
         self._estatico()
 
     def _estatico(self):
         """Sirve los archivos de web/ (solo de esa carpeta)."""
         ruta = self.path.split("?")[0]
+        if ruta.endswith("/"):
+            ruta += "index.html"
         destino = os.path.realpath(os.path.join(WEB, ("index.html" if ruta == "/" else ruta.lstrip("/"))))
         if not destino.startswith(os.path.realpath(WEB) + os.sep) or not os.path.isfile(destino):
             return self.send_error(404)
@@ -485,6 +722,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**guardar_ajustes(cuerpo), "estado": ESTADO})
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+        if self.path == "/cerebro":
+            try:
+                texto, acciones, cerebro, crudo = pensar(cuerpo["sistema"], cuerpo["mensajes"])
+                return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo})
+            except Exception as e:   # la cara muestra el error en vez de quedarse colgada
+                return self._json({"error": {"message": str(e)}}, 500)
         if self.path in ("/api/probar/despertador", "/api/probar/trabajo"):
             modo = self.path.rsplit("/", 1)[1]
             threading.Thread(target=probar, args=(modo, leer_ajustes()[modo]["luces"]), daemon=True).start()
