@@ -338,6 +338,12 @@ def semaforo(p):
 
 
 ENVIADO = {}   # (modo, id de luz) -> último cambio mandado, para no repetir lo mismo cada vuelta
+# Lo que está haciendo cada rutina, para mostrarlo en el panel y entender qué pasó si algo falla
+ESTADO = {"despertador": {}, "trabajo": {}}
+
+
+def anotar(texto):
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), texto, flush=True)
 
 
 def aplicar_a(ids, cambios, modo):
@@ -348,8 +354,12 @@ def aplicar_a(ids, cambios, modo):
         try:
             luz.aplicar(cambios)
             ENVIADO[(modo, ident)] = cambios
+            if modo in ESTADO:
+                ESTADO[modo].update(ultimo=datetime.now().astimezone().isoformat(timespec="seconds"), error=None)
         except Exception as e:
-            print(f"{modo}: no pude cambiar {luz.nombre}: {e}")
+            anotar(f"{modo}: no pude cambiar {luz.nombre}: {e}")
+            if modo in ESTADO:
+                ESTADO[modo]["error"] = f"{luz.nombre}: {e}"
 
 
 def parpadear(ids, veces=4):
@@ -364,6 +374,7 @@ def parpadear(ids, veces=4):
 
 
 HECHO = set()   # (modo, fecha) que ya terminaron, para no repetirlos
+AVANCE = {}     # (modo, fecha) -> (avance, hora) de la última vuelta, para que el color no vuelva atrás
 
 
 def vuelta_automatica(ahora):
@@ -374,9 +385,13 @@ def vuelta_automatica(ahora):
         hora = ahora.replace(hour=h, minute=m, second=0, microsecond=0)
         inicio = hora - timedelta(minutes=d["minutos"])
         if inicio <= ahora <= hora + timedelta(minutes=2):
-            aplicar_a(d["luces"], amanecer(min(1, (ahora - inicio) / (hora - inicio))), "despertador")
+            p = min(1, (ahora - inicio) / (hora - inicio))
+            ESTADO["despertador"].update(avance=round(p, 3), hasta=hora.isoformat(timespec="seconds"))
+            aplicar_a(d["luces"], amanecer(p), "despertador")
             if ahora >= hora:
                 HECHO.add(("despertador", ahora.date()))
+                ESTADO["despertador"]["avance"] = None
+                anotar("despertador: terminado")
     t = a["trabajo"]
     if t["activo"]:
         v = VIAJE.obtener()
@@ -386,10 +401,22 @@ def vuelta_automatica(ahora):
             if ("trabajo", salida.date()) in HECHO:
                 return
             if inicio <= ahora < salida:
-                aplicar_a(t["luces"], semaforo((ahora - inicio) / (salida - inicio)), "trabajo")
+                # La hora de salida se recalcula con el tráfico cada 5 minutos. Si se atrasa, el color no vuelve
+                # hacia el verde: sigue avanzando desde donde estaba hasta la nueva hora.
+                clave = ("trabajo", salida.date())
+                p = (ahora - inicio) / (salida - inicio)
+                if clave in AVANCE:
+                    antes, cuando = AVANCE[clave]
+                    if p < antes:   # sigue desde el último color y llega al rojo justo a la nueva hora
+                        p = antes + (1 - antes) * (ahora - cuando) / (salida - cuando)
+                AVANCE[clave] = (p, ahora)
+                ESTADO["trabajo"].update(avance=round(p, 3), hasta=salida.isoformat(timespec="seconds"))
+                aplicar_a(t["luces"], semaforo(p), "trabajo")
             elif salida <= ahora <= salida + timedelta(minutes=5):
+                anotar("trabajo: hora de salir, parpadeo")
                 parpadear(t["luces"])
                 HECHO.add(("trabajo", salida.date()))
+                ESTADO["trabajo"]["avance"] = None
 
 
 def bucle_automatico():
@@ -397,8 +424,8 @@ def bucle_automatico():
         try:
             vuelta_automatica(datetime.now().astimezone())
         except Exception as e:
-            print("Error en despertador/modo trabajo:", e)
-        time.sleep(15)
+            anotar(f"Error en despertador/modo trabajo: {e}")
+        time.sleep(10)
 
 
 def probar(modo, ids):
@@ -429,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/clima":
             return self._json(CLIMA.obtener())
         if self.path == "/api/ajustes":
-            return self._json(leer_ajustes())
+            return self._json({**leer_ajustes(), "estado": ESTADO})
         self._estatico()
 
     def _estatico(self):
@@ -455,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 400)
         if self.path == "/api/ajustes":
             try:
-                return self._json(guardar_ajustes(cuerpo))
+                return self._json({**guardar_ajustes(cuerpo), "estado": ESTADO})
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
         if self.path in ("/api/probar/despertador", "/api/probar/trabajo"):
