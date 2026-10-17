@@ -887,7 +887,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.wfile.write(cuerpo)
         if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
             calentar_local()        # y de paso se va cargando el modelo mientras Nahuel escribe
-            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
+            cfg = cargar_rickuel()
+            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url"))})
         self._estatico()
 
     def _estatico(self):
@@ -927,6 +928,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/memoria/borrar":
             borrar_recuerdo(cuerpo.get("id"))
             return self._json(leer_memoria())
+        if self.path == "/hablar":   # la voz de Rick vive en la PC (pc/voz_pc.py); acá solo se le pasa el texto
+            url = cargar_rickuel().get("voz_url")
+            if not url:
+                return self._json({"error": {"message": "Falta voz_url en rickuel.json"}}, 404)
+            try:
+                req = urllib.request.Request(url.rstrip("/") + "/hablar", json.dumps({"texto": cuerpo.get("texto", "")}).encode(),
+                                             {"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    audio = r.read()
+            except Exception as e:
+                return self._json({"error": {"message": f"La voz no responde ({e})"}}, 502)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            return self.wfile.write(audio)
         if self.path == "/cerebro":
             try:
                 texto, acciones, cerebro, crudo, charla = pensar(cuerpo["sistema"], cuerpo["mensajes"])

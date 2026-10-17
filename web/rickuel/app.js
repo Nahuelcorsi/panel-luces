@@ -70,11 +70,11 @@ function moverBoca(si) {
 let modoPi = false, piTieneCerebro = false;
 // Modo panel: la página la sirve el panel de casa (panel-luces). Solo el cerebro pasa por el servidor, que además
 // maneja las luces; la voz y el oído siguen siendo los del navegador.
-let modoPanel = false;
+let modoPanel = false, vozDePc = false;   // vozDePc: el panel tiene la voz de Rick (Piper en la PC)
 const listoPi = fetch('/salud')
   .then(r => r.ok ? r.json() : null)
   .then(d => {
-    if (d?.panel) { modoPanel = true; piTieneCerebro = d.tieneCerebro; return; }
+    if (d?.panel) { modoPanel = true; piTieneCerebro = d.tieneCerebro; vozDePc = !!d.tieneVoz; return; }
     if (!d?.pi) return;
     modoPi = true; piTieneCerebro = d.tieneCerebro;
     $('mic').disabled = false;
@@ -177,6 +177,9 @@ cargarVoces();
 function decir(texto) {
   if (!ajustes.hablar) return;
   if (modoPi) return decirEnPi(texto).catch(err => mostrar(`No pude hablar: ${err.message}`, 'triste'));
+  if (vozDePc) {   // la voz de Rick; si la PC está apagada, cae a la voz del navegador
+    return decirEnPi(texto).catch(() => { vozDePc = false; decir(texto); setTimeout(() => { vozDePc = true; }, 60000); });
+  }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(texto);
   const v = speechSynthesis.getVoices().find(v => v.name === ajustes.voz);

@@ -4,6 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [Sin publicar]
 ### Agregado
+- La voz entrenada de Rick (Piper) en Rickuel: `pc/voz_pc.py` corre en la PC y el panel le pasa el texto por `/hablar` (`voz_url` en `rickuel.json`); la cara mueve la boca con el audio y, si la PC no responde, habla con la voz del navegador.
 - Calificar las respuestas de Rickuel con 👍/👎 (y una corrección opcional en las 👎): cada charla tiene un `id`, las notas se guardan en `calificaciones.json` y `/api/entrenamiento` arma el archivo para entrenar con las buenas y las corregidas.
 
 ## [0.2.0] - 2026-10-15
