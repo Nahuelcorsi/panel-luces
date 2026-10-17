@@ -93,6 +93,10 @@ El cerebro se configura en `rickuel.json` (copialo de `rickuel.example.json`; es
 
 **Memoria:** Rickuel guarda datos duraderos tuyos y de la casa («acordate de que de noche me gusta la luz cálida») en `memoria.json` (en el `.gitignore`) y se los pasa al modelo en cada charla. Se ven y se borran con la ✕ en «Lo que recuerdo de vos», debajo del chat, o diciéndole «olvidá…». Guarda hasta 60 datos de 160 caracteres, y se le pide que no guarde claves ni datos de tarjetas.
 
+**Calificar:** debajo de cada respuesta hay 👍 y 👎. Con 👎 aparece un campo opcional para escribir cómo debió responder. Las notas quedan en `calificaciones.json` (en el `.gitignore`) y `/api/entrenamiento` (el enlace «Bajar para entrenar», debajo del chat) arma el archivo `entrenamiento-rickuel.jsonl` para afinar un modelo propio: entran las 👍 tal cual y las 👎 con tu corrección; las 👎 sin corrección y las que no calificaste quedan afuera.
+
+**Voz de Rick:** si en `rickuel.json` ponés `voz_url` (la PC con `pc/voz_pc.py` corriendo, por ejemplo `http://192.168.0.5:8090`), Rickuel habla con la voz entrenada de Rick en vez de la del navegador. En la PC: `python pc/voz_pc.py --modelo RUTA/es_MX-rick-medium.onnx` (necesita `pip install piper-tts` y el modelo; el `.onnx.json` va al lado). Si la PC está apagada, vuelve a la voz del navegador.
+
 Cada charla se guarda en `charlas.jsonl` (también en el `.gitignore`) para entrenar más adelante un modelo propio. Con `--demo` y sin `rickuel.json` usa un cerebro de mentira, solo para probar la pantalla.
 
 ## Seguridad

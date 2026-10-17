@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -789,18 +790,83 @@ def pensar(sistema, mensajes):
             errores.append(f"{nombre}: respuesta vacía")
             continue
         texto, acciones = sacar_acciones(crudo)
-        guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
-        return texto, acciones, f"{nombre}:{modelo}", crudo
+        charla = guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
+        return texto, acciones, f"{nombre}:{modelo}", crudo, charla
     raise RuntimeError("No tengo cerebro disponible (" + "; ".join(errores) + ")" if errores else
                        "Falta configurar el cerebro en rickuel.json")
 
 
 def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
-    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel."""
+    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel. Devuelve su id."""
+    ident = uuid.uuid4().hex[:12]
     with LOCK_CHARLAS, open(RUTA_CHARLAS, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"fecha": datetime.now().astimezone().isoformat(timespec="seconds"), "cerebro": cerebro,
-                            "modelo": modelo, "pregunta": pregunta, "respuesta": respuesta, "acciones": acciones},
-                           ensure_ascii=False) + "\n")
+        f.write(json.dumps({"id": ident, "fecha": datetime.now().astimezone().isoformat(timespec="seconds"),
+                            "cerebro": cerebro, "modelo": modelo, "pregunta": pregunta, "respuesta": respuesta,
+                            "acciones": acciones}, ensure_ascii=False) + "\n")
+    return ident
+
+
+# ---- Calificaciones: 👍/👎 de Nahuel a cada respuesta, para quedarse con las buenas al entrenar ----
+RUTA_CALIF = os.path.join(BASE, "calificaciones-demo.json" if DEMO else "calificaciones.json")
+LOCK_CALIF = threading.Lock()
+ID_CHARLA = re.compile(r"[0-9a-f]{12}")
+
+
+def leer_calificaciones():
+    try:
+        with open(RUTA_CALIF, encoding="utf-8") as f:
+            datos = json.load(f)
+        return datos if isinstance(datos, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def calificar(ident, voto, mejor=""):
+    """voto: 1 (buena), -1 (mala) o 0 (sacar la nota). En las malas, `mejor` es cómo debió responder (opcional)."""
+    if not isinstance(ident, str) or not ID_CHARLA.fullmatch(ident) or voto not in (-1, 0, 1):
+        raise ValueError("calificación no válida")
+    with LOCK_CALIF:
+        notas = leer_calificaciones()
+        if voto == 0:
+            notas.pop(ident, None)
+        else:
+            notas[ident] = {"voto": voto, "mejor": " ".join(str(mejor or "").split())[:500],
+                            "fecha": datetime.now().astimezone().isoformat(timespec="seconds")}
+        with open(RUTA_CALIF, "w", encoding="utf-8") as f:
+            json.dump(notas, f, ensure_ascii=False, indent=1)
+
+
+def resumen_calificaciones():
+    notas = leer_calificaciones().values()
+    return {"buenas": sum(n["voto"] == 1 for n in notas), "malas": sum(n["voto"] == -1 for n in notas),
+            "corregidas": sum(n["voto"] == -1 and bool(n.get("mejor")) for n in notas)}
+
+
+def armar_entrenamiento():
+    """Charlas para afinar el modelo (formato de mensajes, una por línea): las 👍 tal cual y las 👎 con la respuesta
+    que Nahuel escribió. Las 👎 sin corrección y las que no calificó quedan afuera."""
+    notas, filas = leer_calificaciones(), []
+    try:
+        with open(RUTA_CHARLAS, encoding="utf-8") as f:
+            for linea in f:
+                try:
+                    c = json.loads(linea)
+                except ValueError:
+                    continue
+                n = notas.get(c.get("id"))
+                if not n:
+                    continue
+                if n["voto"] == 1:
+                    respuesta = c["respuesta"]
+                elif n.get("mejor"):
+                    respuesta = n["mejor"] if re.match(r"\s*\[\w+\]", n["mejor"]) else "[neutral] " + n["mejor"]
+                else:
+                    continue
+                filas.append(json.dumps({"messages": [{"role": "user", "content": c["pregunta"]},
+                                                      {"role": "assistant", "content": respuesta}]}, ensure_ascii=False))
+    except OSError:
+        pass
+    return "\n".join(filas) + ("\n" if filas else "")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -823,9 +889,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({**leer_ajustes(), "estado": ESTADO})
         if self.path == "/api/memoria":
             return self._json(leer_memoria())
+        if self.path == "/api/calificaciones":
+            return self._json(resumen_calificaciones())
+        if self.path == "/api/entrenamiento":   # se baja desde el navegador, para llevarlo a Colab
+            cuerpo = armar_entrenamiento().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="entrenamiento-rickuel.jsonl"')
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            return self.wfile.write(cuerpo)
         if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
             calentar_local()        # y de paso se va cargando el modelo mientras Nahuel escribe
-            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
+            cfg = cargar_rickuel()
+            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url"))})
         self._estatico()
 
     def _estatico(self):
@@ -856,13 +933,35 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**guardar_ajustes(cuerpo), "estado": ESTADO})
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+        if self.path == "/api/calificar":
+            try:
+                calificar(cuerpo.get("charla"), cuerpo.get("voto"), cuerpo.get("mejor", ""))
+                return self._json(resumen_calificaciones())
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
         if self.path == "/api/memoria/borrar":
             borrar_recuerdo(cuerpo.get("id"))
             return self._json(leer_memoria())
+        if self.path == "/hablar":   # la voz de Rick vive en la PC (pc/voz_pc.py); acá solo se le pasa el texto
+            url = cargar_rickuel().get("voz_url")
+            if not url:
+                return self._json({"error": {"message": "Falta voz_url en rickuel.json"}}, 404)
+            try:
+                req = urllib.request.Request(url.rstrip("/") + "/hablar", json.dumps({"texto": cuerpo.get("texto", "")}).encode(),
+                                             {"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    audio = r.read()
+            except Exception as e:
+                return self._json({"error": {"message": f"La voz no responde ({e})"}}, 502)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            return self.wfile.write(audio)
         if self.path == "/cerebro":
             try:
-                texto, acciones, cerebro, crudo = pensar(cuerpo["sistema"], cuerpo["mensajes"])
-                return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo})
+                texto, acciones, cerebro, crudo, charla = pensar(cuerpo["sistema"], cuerpo["mensajes"])
+                return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo, "charla": charla})
             except Exception as e:   # la cara muestra el error en vez de quedarse colgada
                 return self._json({"error": {"message": str(e)}}, 500)
         if self.path in ("/api/probar/despertador", "/api/probar/trabajo"):
