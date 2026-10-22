@@ -104,6 +104,33 @@
   .luz.sala .power svg { width: 48px; height: 48px; }
   .miembros h2 { margin-top: 4px; }
 
+  /* Combinaciones de colores y efectos de una sala */
+  .combinaciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .combo { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 18px; padding: 10px 8px 9px; font-size: 13.5px;
+           text-align: center; color: var(--suave); transition: all .2s; }
+  .combo .muestra { height: 34px; border-radius: 12px; margin-bottom: 7px; background: var(--g); }
+  .combo.animada .muestra { background-size: 300% 100%; animation: correr 3s linear infinite; }
+  @keyframes correr { to { background-position: 300% 0; } }
+  .combo:active { transform: scale(.96); }
+  .combo.activa { border-color: rgba(255, 255, 255, .8); color: var(--texto); background: rgba(255, 255, 255, .14); }
+  .boton-musica { width: 100%; border: 0; border-radius: 22px; padding: 18px; font-size: 18px; font-weight: 650; text-align: center; color: #fff;
+                  background: linear-gradient(110deg, #ff3c9a, #7a2cff, #1e9bff); box-shadow: 0 8px 30px -8px rgba(122, 44, 255, .7); }
+  .boton-musica:active { transform: scale(.98); }
+
+  /* Modo música: escucha por el micrófono y prende las luces con cada golpe */
+  #musica { position: fixed; z-index: 7; inset: 0; background: #05060a; display: flex; flex-direction: column; align-items: center;
+            justify-content: space-between; padding: calc(30px + env(safe-area-inset-top)) 24px calc(30px + env(safe-area-inset-bottom)); text-align: center; }
+  #musica > * { width: 100%; max-width: 420px; }
+  #musica h1 { margin: 0; font-size: 26px; }
+  #musica .pulso-caja { display: grid; place-items: center; height: 260px; }
+  #musica .pulso { width: 170px; height: 170px; border-radius: 50%; background: var(--c, #7a2cff); transition: transform .08s, background .15s;
+                   box-shadow: 0 0 90px 10px color-mix(in srgb, var(--c, #7a2cff) 60%, transparent); }
+  #musica .nivel { height: 10px; border-radius: 99px; background: var(--vidrio); overflow: hidden; }
+  #musica .nivel i { display: block; height: 100%; width: 0; background: #fff; transition: width .05s; }
+  #musica .estado-m { color: var(--suave); min-height: 22px; }
+  #musica .opciones { justify-content: center; }
+  #musica .parar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 16px; font-size: 17px; text-align: center; }
+
   /* Resumen de la casa debajo del reloj */
   .resumen { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
   .pastilla { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px; font-size: 14px;
@@ -308,6 +335,18 @@
   <div class="respuesta"></div>
   <div class="ayuda">Probá: "prendé el living" · "apagá la cocina" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
     "¿a qué hora salgo?" · "¿cómo está el clima?" · "despertador a las 6 y media" · "modo noche"</div>
+</div>
+
+<div id="musica" class="oculta">
+  <div><h1>Modo música</h1><div class="estado-m">Pidiendo el micrófono…</div></div>
+  <div class="pulso-caja"><div class="pulso"></div></div>
+  <div style="display:flex; flex-direction:column; gap:16px">
+    <div class="nivel"><i></i></div>
+    <div class="opciones modos"></div>
+    <div><div class="fila-titulo"><span>Sensibilidad</span><span class="sens-txt"></span></div>
+      <input class="tono sens" type="range" min="1" max="10" value="5" style="background:linear-gradient(to right,#2a2f3d,#fff)"></div>
+    <button class="parar">Parar</button>
+  </div>
 </div>
 
 <div id="noche" class="oculta">
@@ -605,8 +644,12 @@ async function cargarSalas() {
         <div><div class="fila-titulo"><span>Color</span></div><input class="tono" type="range" min="0" max="359"></div>
         <div class="blancos">${PRESETS.map(x => `<button class="blanco" data-t="${x[1]}"><i style="background:${x[2]}"></i>${x[0]}</button>`).join('')}</div>
       </div>
+      <div><h2>Combinaciones</h2><div class="combinaciones fijas"></div></div>
+      <div><h2>Animadas</h2><div class="combinaciones animadas"></div></div>
+      <button class="boton-musica">🎵 Modo música</button>
       <div class="miembros"><h2>Cada luz</h2><div class="grilla"></div></div>`;
     p.querySelector('.nombre').textContent = nombre;
+    armarCombinaciones(id, sala, p);
     const miembros = () => sala.luces.map(x => tarjetas[x]).filter(x => x && !x.classList.contains('offline'));
     const aplicar = (cambios, ya) => { miembros().forEach(x => reflejar(x, cambios)); enviar(id, cambios, ya); };
     const alternar = () => aplicar({ encendida: !sala.on }, true);
@@ -626,6 +669,166 @@ async function cargarSalas() {
   ubicarMosaicos();
   pintarSalas();
 }
+
+// ---- combinaciones: un color distinto en cada luz de la sala ----
+const COMBINACIONES = [
+  ['Atardecer', ['#ff5e1a', '#ff2d6f', '#8a3cff']],
+  ['Océano', ['#00c8ff', '#0040ff', '#00ffb0']],
+  ['Fuego', ['#ff1e00', '#ff6a00', '#ffb400']],
+  ['Galaxia', ['#6a00ff', '#ff00c8', '#1e4bff']],
+  ['Bosque', ['#00ff40', '#a8ff00', '#00b46e']],
+  ['Caramelo', ['#ff3c9a', '#3cc8ff', '#ffd000']],
+];
+const ANIMADAS = [['fiesta', 'Fiesta', '#ff3c9a,#ffd000,#00ff40,#3cc8ff,#7a2cff,#ff3c9a'],
+  ['arcoiris', 'Arcoíris', '#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00'], ['ola', 'Ola', '#111,#3cc8ff,#111,#111'],
+  ['fuego', 'Fogata', '#ff1e00,#ff8a00,#ff3c00,#ffb400,#ff1e00'], ['respirar', 'Respirar', '#2a0a5e,#b07cff,#2a0a5e']];
+let efectosActivos = {};
+
+function armarCombinaciones(id, sala, p) {
+  const fijas = p.querySelector('.fijas'), animadas = p.querySelector('.animadas');
+  for (const [nombre, colores] of COMBINACIONES) {
+    const b = document.createElement('button');
+    b.className = 'combo';
+    b.style.setProperty('--g', `linear-gradient(90deg, ${colores.join(', ')})`);
+    b.innerHTML = `<div class="muestra"></div>${nombre}`;
+    b.onclick = () => {
+      const brillo = sala.brillo || 100;
+      sala.luces.filter(x => tarjetas[x] && !tarjetas[x].classList.contains('offline')).forEach((x, i) => {
+        const c = { encendida: true, color: colores[i % colores.length], brillo };
+        reflejar(tarjetas[x], c);
+        enviar(x, c, true);
+      });
+      delete efectosActivos[id];
+      pintarEfectos();
+    };
+    fijas.appendChild(b);
+  }
+  for (const [clave, nombre, colores] of ANIMADAS) {
+    const b = document.createElement('button');
+    b.className = 'combo animada';
+    b.dataset.efecto = clave;
+    b.style.setProperty('--g', `linear-gradient(90deg, ${colores})`);
+    b.innerHTML = `<div class="muestra"></div>${nombre}`;
+    b.onclick = async () => {
+      const prender = efectosActivos[id] !== clave;   // tocar la que está andando la apaga
+      try { efectosActivos = await (await fetch('/api/efecto', { method: 'POST', body: JSON.stringify({ sala: id, efecto: prender ? clave : null }) })).json(); } catch (e) {}
+      pintarEfectos();
+    };
+    animadas.appendChild(b);
+  }
+  p.querySelector('.boton-musica').onclick = () => empezarMusica(id);
+}
+function pintarEfectos() {
+  for (const [id, s] of Object.entries(salas)) {
+    if (!s.pantalla) continue;
+    s.pantalla.querySelectorAll('.animada').forEach(b => b.classList.toggle('activa', efectosActivos[id] === b.dataset.efecto));
+    if (s.mosaico) {
+      const ef = ANIMADAS.find(a => a[0] === efectosActivos[id]);
+      if (ef) s.mosaico.querySelector('.m-sub').textContent = '✨ ' + ef[1];
+    }
+  }
+}
+async function refrescarEfectos() {
+  try { efectosActivos = await (await fetch('/api/efectos')).json(); } catch (e) {}
+  pintarEfectos();
+}
+
+// ---- modo música: el micrófono del celular escucha y cada golpe de bajo cambia las luces ----
+// Las lamparitas aguantan unos 3 o 4 cambios por segundo, así que se reacciona a los golpes y no a cada sonido.
+const MODOS_MUSICA = [['cadena', 'Cadena'], ['todas', 'Todas juntas'], ['arcoiris', 'Arcoíris']];
+const musicaPantalla = document.getElementById('musica');
+const mus = { modo: 'cadena', sens: 5 };
+try { Object.assign(mus, JSON.parse(localStorage.getItem('musica')) || {}); } catch (e) {}
+
+async function empezarMusica(salaId) {
+  const ids = salas[salaId].luces.filter(x => tarjetas[x] && !tarjetas[x].classList.contains('offline'));
+  const estado = musicaPantalla.querySelector('.estado-m');
+  musicaPantalla.classList.remove('oculta');
+  pintarModosMusica();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    estado.textContent = 'El micrófono solo funciona en la pantalla del celular del panel.';
+    return;
+  }
+  estado.textContent = 'Pidiendo el micrófono…';
+  try {
+    mus.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    estado.textContent = 'No tengo permiso para el micrófono. Habilitalo en los permisos de Chrome y probá de nuevo.';
+    return;
+  }
+  estado.textContent = 'Escuchando… poné música fuerte cerca del celular';
+  mus.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const fuente = mus.ctx.createMediaStreamSource(mus.stream);
+  const an = mus.ctx.createAnalyser();
+  an.fftSize = 1024;
+  an.smoothingTimeConstant = .2;
+  fuente.connect(an);
+  const datos = new Uint8Array(an.frequencyBinCount);
+  const hastaBajo = Math.max(2, Math.round(150 / (mus.ctx.sampleRate / an.fftSize)));   // hasta 150 Hz: bombo y bajo
+  Object.assign(mus, { ids, activo: true, prom: 0, ultimo: 0, paso: 0, hue: Math.random() });
+  const pulso = musicaPantalla.querySelector('.pulso'), nivel = musicaPantalla.querySelector('.nivel i');
+  const vuelta = () => {
+    if (!mus.activo) return;
+    an.getByteFrequencyData(datos);
+    let bajo = 0, todo = 0;
+    for (let i = 1; i <= hastaBajo; i++) bajo += datos[i];
+    for (let i = 0; i < datos.length; i++) todo += datos[i];
+    bajo /= hastaBajo;
+    todo /= datos.length;
+    mus.prom = mus.prom ? mus.prom * .94 + bajo * .06 : bajo;
+    nivel.style.width = Math.min(100, todo / 1.2) + '%';
+    const umbral = 1.6 - mus.sens * .08, ahora = performance.now();   // sensibilidad 1 = solo golpes fuertes, 10 = casi todo
+    if (bajo > mus.prom * umbral && bajo > 40 && ahora - mus.ultimo > 260) {
+      mus.ultimo = ahora;
+      golpe(Math.min(1, (bajo / Math.max(mus.prom, 1) - 1) * 2));
+      pulso.style.transform = 'scale(1.25)';
+      setTimeout(() => pulso.style.transform = '', 120);
+    }
+    ultimoToque = Date.now();   // que no vuelva al inicio ni pase al modo noche mientras suena
+    requestAnimationFrame(vuelta);
+  };
+  vuelta();
+}
+
+function golpe(fuerza) {
+  const ids = mus.ids, n = ids.length, envio = {};
+  if (!n) return;
+  const brillo = Math.round(55 + 45 * fuerza);
+  if (mus.modo === 'cadena') {   // una luz por golpe, recorriendo la sala; la anterior queda tenue
+    const actual = mus.paso % n, antes = (mus.paso + n - 1) % n;
+    mus.hue += .09;
+    envio[ids[actual]] = { color: hsvAHex(mus.hue), brillo };
+    if (n > 1) envio[ids[antes]] = { color: hsvAHex(mus.hue - .09), brillo: 12 };
+  } else if (mus.modo === 'todas') {   // todas del mismo color, salta en cada golpe
+    mus.hue += .17 + Math.random() * .15;
+    ids.forEach(x => envio[x] = { color: hsvAHex(mus.hue), brillo });
+  } else {   // arcoíris repartido que gira con cada golpe
+    mus.hue += .07;
+    ids.forEach((x, i) => envio[x] = { color: hsvAHex(mus.hue + i / n), brillo });
+  }
+  mus.paso++;
+  musicaPantalla.querySelector('.pulso').style.setProperty('--c', hsvAHex(mus.hue));
+  for (const [x, c] of Object.entries(envio)) reflejar(tarjetas[x], { encendida: true, color: c.color, brillo: c.brillo });
+  fetch('/api/musica', { method: 'POST', body: JSON.stringify(envio) }).catch(() => {});
+}
+const hsvAHex = h => hueAHex(Math.round((((h % 1) + 1) % 1) * 359));
+
+function pararMusica() {
+  mus.activo = false;
+  if (mus.stream) mus.stream.getTracks().forEach(t => t.stop());
+  if (mus.ctx) mus.ctx.close().catch(() => {});
+  mus.stream = mus.ctx = null;
+  musicaPantalla.classList.add('oculta');
+}
+function pintarModosMusica() {
+  chipsOpcion(musicaPantalla.querySelector('.modos'), MODOS_MUSICA, [mus.modo], m => { mus.modo = m; guardarMusica(); pintarModosMusica(); });
+  const s = musicaPantalla.querySelector('.sens');
+  s.value = mus.sens;
+  musicaPantalla.querySelector('.sens-txt').textContent = mus.sens;
+}
+function guardarMusica() { try { localStorage.setItem('musica', JSON.stringify({ modo: mus.modo, sens: mus.sens })); } catch (e) {} }
+musicaPantalla.querySelector('.sens').oninput = e => { mus.sens = +e.target.value; guardarMusica(); pintarModosMusica(); };
+musicaPantalla.querySelector('.parar').onclick = pararMusica;
 
 function ubicarMosaicos() {
   // Primero las salas grandes, después las luces sueltas, en el orden de devices.json
@@ -679,11 +882,14 @@ function pintarSalas() {
     }
     if (p === abierta) pintarAmbiente();
   }
+  pintarEfectos();
 }
 document.getElementById('p-luces').onclick = () => grillaLuces.scrollIntoView({ behavior: 'smooth' });
 
 cargarSalas().then(refrescar);
 setInterval(refrescar, 4000);
+refrescarEfectos();
+setInterval(refrescarEfectos, 10000);
 setInterval(cargarSalas, 60000);   // por si se reinició el servidor con salas nuevas
 
 // ---- escenas ----

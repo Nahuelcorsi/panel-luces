@@ -6,7 +6,9 @@ Uso:
 """
 import colorsys
 import json
+import math
 import os
+import random
 import re
 import socket
 import ssl
@@ -53,6 +55,9 @@ class LuzFalsa:
         if "blanco" in cambios:
             self.color = ("#ffb86b", "#fff1dc", "#cfe3ff")[min(2, int(cambios["blanco"]) // 34)]
 
+    def rapido(self, color, brillo):
+        self.aplicar({"encendida": True, "color": color, "brillo": brillo})
+
 
 def color_hex(estado):
     """Color a mostrar. En modo color viene como HSV hexadecimal (HHHHSSSSVVVV); en blanco, un tono cálido."""
@@ -86,6 +91,37 @@ class LuzTuya:
         self.dev = None
         self.ultimo_fallo = 0
         self.brillo = 100   # último brillo conocido (1-100), para conservarlo al cambiar de color
+        self.dev_rapido = None   # conexión aparte, siempre abierta, para efectos y música
+        self.lock_rapido = threading.Lock()
+        self.ultimo_rapido = 0
+
+    def rapido(self, color, brillo):
+        """Cambio de color sin esperar respuesta (~10 ms en vez de ~400): para efectos y música.
+        Si la luz todavía está con el cambio anterior, este se descarta: mejor saltear uno que atrasarse."""
+        if not self.lock_rapido.acquire(blocking=False):
+            return
+        try:
+            if self.dev_rapido and time.time() - self.ultimo_rapido > 8:
+                # La luz corta la conexión si queda quieta, y sin esperar respuesta no nos enteramos: se abre otra
+                self.dev_rapido.close()
+                self.dev_rapido = None
+            self.ultimo_rapido = time.time()
+            if self.dev_rapido is None:
+                d = self.datos
+                dev = tinytuya.BulbDevice(d["id"], d.get("ip") or "Auto", d["key"], version=float(d.get("version") or 3.3))
+                dev.set_socketTimeout(2)
+                dev.set_socketPersistent(True)
+                dev.status()   # sin esto no sabe qué sabe hacer la luz y no acepta cambios sin esperar
+                self.dev_rapido = dev
+            c = color.lstrip("#")
+            h, s, _ = colorsys.rgb_to_hsv(int(c[0:2], 16) / 255, int(c[2:4], 16) / 255, int(c[4:6], 16) / 255)
+            self.dev_rapido.set_hsv(h, s, max(1, min(100, int(brillo))) / 100, nowait=True)
+        except Exception:
+            if self.dev_rapido:
+                self.dev_rapido.close()
+            self.dev_rapido = None
+        finally:
+            self.lock_rapido.release()
 
     def _conectar(self):
         """Crea el dispositivo la primera vez que se lo necesita; reintenta si no lo encuentra."""
@@ -215,6 +251,77 @@ def cargar_grupos():
 
 
 GRUPOS = {}
+
+
+# ---- Efectos animados y música: colores que cambian solos en las luces de una sala ----
+# Los efectos los corre el servidor (siguen con la pantalla apagada). Cualquier otra orden a esas luces los corta.
+# La música la escucha la página con el micrófono y manda acá cada golpe (/api/musica).
+
+def hsv_hex(h, s=1.0, v=1.0):
+    r, g, b = colorsys.hsv_to_rgb(h % 1, s, v)
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+
+def efecto_arcoiris(n, paso):   # los colores del arcoíris giran por las luces
+    return [(hsv_hex(paso * .02 + i / n), 100) for i in range(n)], .5
+
+
+def efecto_fiesta(n, paso):   # colores al azar bien distintos entre sí
+    base = random.random()
+    return [(hsv_hex(base + i / n + random.uniform(-.08, .08)), 100) for i in range(n)], .9
+
+
+def efecto_ola(n, paso):   # una luz fuerte que recorre la sala; el color cambia en cada vuelta
+    actual, color = paso % n, hsv_hex(paso // n * .17)
+    return [(color, 100 if i == actual else 8) for i in range(n)], .6
+
+
+def efecto_fuego(n, paso):   # naranjas que titilan
+    return [(hsv_hex(random.uniform(.0, .09)), random.randint(35, 100)) for _ in range(n)], .35
+
+
+def efecto_respirar(n, paso):   # un mismo color que sube y baja despacio
+    return [(hsv_hex(paso * .004 + .7), round(55 + 45 * math.sin(paso / 4))) for _ in range(n)], .45
+
+
+EFECTOS = {"arcoiris": efecto_arcoiris, "fiesta": efecto_fiesta, "ola": efecto_ola,
+           "fuego": efecto_fuego, "respirar": efecto_respirar}
+CORRIENDO = {}   # id de sala -> {"efecto": nombre, "parar": Event}
+
+
+def parar_efectos(ids):
+    """Corta los efectos que usan alguna de estas luces."""
+    for sala, e in list(CORRIENDO.items()):
+        if set(ids) & set(GRUPOS[sala].ids):
+            e["parar"].set()
+            CORRIENDO.pop(sala, None)
+
+
+def correr_efecto(sala, nombre):
+    luces = GRUPOS[sala].luces()
+    parar_efectos(GRUPOS[sala].ids)
+    en_paralelo(lambda l: l.aplicar({"encendida": True}), luces)
+    parar = threading.Event()
+    CORRIENDO[sala] = {"efecto": nombre, "parar": parar}
+
+    def bucle():
+        paso = 0
+        while not parar.is_set():
+            colores, espera = EFECTOS[nombre](len(luces), paso)
+            for luz, (color, brillo) in zip(luces, colores):
+                threading.Thread(target=luz.rapido, args=(color, brillo), daemon=True).start()
+            paso += 1
+            parar.wait(espera)
+    threading.Thread(target=bucle, daemon=True).start()
+
+
+def musica(cambios):
+    """Un golpe de la música: {id de luz: {"color": "#rrggbb", "brillo": 1-100}}. No espera a las luces."""
+    parar_efectos(list(cambios))
+    for ident, c in cambios.items():
+        luz = LUCES.get(ident)
+        if luz and re.fullmatch(r"#[0-9a-fA-F]{6}", str(c.get("color"))):
+            threading.Thread(target=luz.rapido, args=(c["color"], c.get("brillo") or 100), daemon=True).start()
 
 
 # ---- Viaje al trabajo y clima ----
@@ -432,6 +539,7 @@ def anotar(texto):
 
 
 def aplicar_a(ids, cambios, modo):
+    parar_efectos(ids)   # las rutinas mandan sobre los efectos
     for ident in ids:
         luz = LUCES.get(ident)
         if luz is None or ENVIADO.get((modo, ident)) == cambios:
@@ -718,6 +826,7 @@ def ejecutar_accion(partes):
         if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
             c["brillo"] = luz.estado().get("brillo") or 100
         luz.aplicar(c)
+    parar_efectos([l.id for l in luces])
     _, fallas = en_paralelo(una, luces)   # todas a la vez, así un grupo cambia junto
     return (not fallas), ", ".join(fallas)
 
@@ -951,6 +1060,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json([l.estado() for l in LUCES.values()])
         if self.path == "/api/grupos":
             return self._json([g.estado() for g in GRUPOS.values()])
+        if self.path == "/api/efectos":
+            return self._json({sala: e["efecto"] for sala, e in CORRIENDO.items()})
         if self.path == "/api/salas":   # solo qué luces tiene cada grupo, sin preguntarle nada a las luces
             return self._json([{"id": i, "nombre": g.nombre, "luces": g.ids} for i, g in GRUPOS.items()])
         if self.path == "/api/viaje":
@@ -1040,10 +1151,23 @@ class Handler(BaseHTTPRequestHandler):
             modo = self.path.rsplit("/", 1)[1]
             threading.Thread(target=probar, args=(modo, leer_ajustes()[modo]["luces"]), daemon=True).start()
             return self._json({"ok": True})
+        if self.path == "/api/efecto":   # {"sala": "living", "efecto": "fiesta"}; efecto vacío lo apaga
+            sala = sin_tildes(str(cuerpo.get("sala", "")))
+            if sala not in GRUPOS:
+                return self._json({"error": "sala desconocida"}, 404)
+            if cuerpo.get("efecto") in EFECTOS:
+                correr_efecto(sala, cuerpo["efecto"])
+            else:
+                parar_efectos(GRUPOS[sala].ids)
+            return self._json({s: e["efecto"] for s, e in CORRIENDO.items()})
+        if self.path == "/api/musica":
+            musica(cuerpo)
+            return self._json({"ok": True})
         if self.path.startswith("/api/grupos/"):
             grupo = GRUPOS.get(sin_tildes(urllib.parse.unquote(self.path.rsplit("/", 1)[1])))
             if grupo is None:
                 return self._json({"error": "grupo desconocido"}, 404)
+            parar_efectos(grupo.ids)
             try:
                 grupo.aplicar(cuerpo)
             except Exception as e:
@@ -1054,6 +1178,7 @@ class Handler(BaseHTTPRequestHandler):
         luz = LUCES.get(self.path.rsplit("/", 1)[1])
         if luz is None:
             return self._json({"error": "luz desconocida"}, 404)
+        parar_efectos([luz.id])
         try:
             luz.aplicar(cuerpo)
         except Exception as e:
