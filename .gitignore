@@ -6,6 +6,7 @@ panel-luces-celular.zip
 .claude/
 __pycache__/
 lugares.json
+grupos.json
 ajustes*.json
 rickuel.json
 charlas*.jsonl

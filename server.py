@@ -150,6 +150,72 @@ def cargar_luces():
 LUCES = {}
 
 
+def en_paralelo(funcion, luces):
+    """Corre funcion(luz) en todas las luces a la vez; devuelve (resultados, fallas)."""
+    resultados, fallas = [None] * len(luces), []
+
+    def una(i, luz):
+        try:
+            resultados[i] = funcion(luz)
+        except Exception as e:
+            fallas.append(f"{luz.nombre} ({e})")
+    hilos = [threading.Thread(target=una, args=(i, l)) for i, l in enumerate(luces)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join()
+    return resultados, fallas
+
+
+# ---- Grupos: varias luces que se manejan juntas, como las 3 del living ----
+# grupos.json: {"Living": ["Living 1", "Living 2", "Living 3"]}, con nombres o ids de devices.json (ver grupos.example.json).
+# Cada luz del grupo se sigue manejando sola en /api/luces/<id>; el grupo entero, en /api/grupos/<nombre>.
+
+class Grupo:
+    def __init__(self, nombre, ids):
+        self.nombre, self.ids = nombre, ids
+
+    def luces(self):
+        return [LUCES[i] for i in self.ids if i in LUCES]
+
+    def estado(self):
+        """Prendido si alguna está prendida; brillo y color de la primera prendida (o de la primera que responda)."""
+        estados, _ = en_paralelo(lambda l: l.estado(), self.luces())
+        online = [e for e in estados if e and e.get("online")]
+        prendidas = [e for e in online if e["encendida"]]
+        ref = (prendidas or online or [{}])[0]
+        return {"id": sin_tildes(self.nombre), "nombre": self.nombre, "luces": self.ids, "online": bool(online),
+                "encendida": bool(prendidas), "brillo": ref.get("brillo"), "color": ref.get("color")}
+
+    def aplicar(self, cambios):
+        """Manda el cambio a todas al mismo tiempo, así se prenden juntas y no de a una."""
+        _, fallas = en_paralelo(lambda l: l.aplicar(dict(cambios)), self.luces())
+        if fallas:
+            raise RuntimeError("no pude cambiar " + ", ".join(fallas))
+
+
+def cargar_grupos():
+    ruta = os.path.join(BASE, "grupos.json")
+    if not os.path.exists(ruta):
+        return {}
+    with open(ruta, encoding="utf-8") as f:
+        datos = json.load(f)
+    grupos = {}
+    for nombre, miembros in datos.items():
+        ids = []
+        for m in miembros:
+            luz = LUCES.get(m) or next((l for l in LUCES.values() if sin_tildes(l.nombre) == sin_tildes(m)), None)
+            if luz:
+                ids.append(luz.id)
+            else:
+                anotar(f"grupo {nombre}: no encuentro la luz «{m}» en devices.json")
+        grupos[sin_tildes(nombre)] = Grupo(nombre, ids)
+    return grupos
+
+
+GRUPOS = {}
+
+
 # ---- Viaje al trabajo y clima ----
 # lugares.json: direcciones de casa y trabajo, hora de llegada y clave de TomTom (ver lugares.example.json).
 
@@ -591,6 +657,8 @@ def contexto_casa():
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     lineas = [f"Ahora es {dias[ahora.weekday()]} {ahora:%d/%m/%Y %H:%M}.", "Luces:"]
     lineas += [resumen_luz(l.estado()) for l in LUCES.values()]
+    for g in GRUPOS.values():   # pedirle "living" maneja todas las del grupo juntas
+        lineas.append(f"Grupo «{g.nombre}»: " + ", ".join(l.nombre for l in g.luces()))
     try:
         v = VIAJE.obtener()
         if v.get("ok"):
@@ -613,6 +681,8 @@ def luces_por_nombre(nombre):
     n = sin_tildes(nombre)
     if n in ("todas", "todo", "todos"):
         return list(LUCES.values())
+    if n in GRUPOS:
+        return GRUPOS[n].luces()
     return [l for l in LUCES.values() if n in sin_tildes(l.nombre)]
 
 
@@ -642,15 +712,12 @@ def ejecutar_accion(partes):
             return False, "acción de luz no válida"
     else:
         return False, "acción no válida"
-    fallas = []
-    for luz in luces:
-        try:
-            c = dict(cambios)
-            if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
-                c["brillo"] = luz.estado().get("brillo") or 100
-            luz.aplicar(c)
-        except Exception as e:
-            fallas.append(f"{luz.nombre} ({e})")
+    def una(luz):
+        c = dict(cambios)
+        if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
+            c["brillo"] = luz.estado().get("brillo") or 100
+        luz.aplicar(c)
+    _, fallas = en_paralelo(una, luces)   # todas a la vez, así un grupo cambia junto
     return (not fallas), ", ".join(fallas)
 
 
@@ -881,6 +948,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/luces":
             return self._json([l.estado() for l in LUCES.values()])
+        if self.path == "/api/grupos":
+            return self._json([g.estado() for g in GRUPOS.values()])
         if self.path == "/api/viaje":
             return self._json(VIAJE.obtener())
         if self.path == "/api/clima":
@@ -968,6 +1037,15 @@ class Handler(BaseHTTPRequestHandler):
             modo = self.path.rsplit("/", 1)[1]
             threading.Thread(target=probar, args=(modo, leer_ajustes()[modo]["luces"]), daemon=True).start()
             return self._json({"ok": True})
+        if self.path.startswith("/api/grupos/"):
+            grupo = GRUPOS.get(sin_tildes(urllib.parse.unquote(self.path.rsplit("/", 1)[1])))
+            if grupo is None:
+                return self._json({"error": "grupo desconocido"}, 404)
+            try:
+                grupo.aplicar(cuerpo)
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
+            return self._json(grupo.estado())
         if not self.path.startswith("/api/luces/"):
             return self.send_error(404)
         luz = LUCES.get(self.path.rsplit("/", 1)[1])
@@ -990,6 +1068,7 @@ class Servidor(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     LUCES = {l.id: l for l in cargar_luces()}
+    GRUPOS = cargar_grupos()
     try:
         servidor = Servidor(("0.0.0.0", PUERTO), Handler)
     except OSError:

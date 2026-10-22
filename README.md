@@ -71,6 +71,9 @@ Abrir `http://localhost:8080`.
    python -m tinytuya scan
    ```
    y agregar `"ip"` y `"version"` a cada entrada de `devices.json` (ver `devices.example.json`).
+   Para manejar varias luces juntas (por ejemplo las 3 del living), copiar `grupos.example.json` como `grupos.json`
+   con los nombres de las luces de cada grupo. Cada luz se sigue manejando sola; el grupo entero se prende,
+   apaga o cambia de color con `POST /api/grupos/<nombre>`, y Rickuel lo entiende por su nombre.
 4. Arrancar:
    ```bash
    python server.py
