@@ -66,6 +66,15 @@ def color_hex(estado):
     return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
 
 
+def brillo_real(estado):
+    """Brillo (1-100) que se ve. En modo color está en el color (HHHHSSSSVVVV), no en "brightness",
+    que es el del modo blanco y puede haber quedado en otro valor."""
+    c = estado.get("colour")
+    if estado.get("mode") == "colour" and isinstance(c, str) and len(c) == 12:
+        return max(1, round(int(c[8:12], 16) / 10))
+    return max(1, round((estado.get("brightness") or 1000) / 10))
+
+
 class LuzTuya:
     """Luz real controlada por la red local con TinyTuya."""
 
@@ -76,6 +85,7 @@ class LuzTuya:
         self.lock = threading.Lock()
         self.dev = None
         self.ultimo_fallo = 0
+        self.brillo = 100   # último brillo conocido (1-100), para conservarlo al cambiar de color
 
     def _conectar(self):
         """Crea el dispositivo la primera vez que se lo necesita; reintenta si no lo encuentra."""
@@ -102,23 +112,27 @@ class LuzTuya:
                 e = self._conectar().state()
             if "Error" in e:
                 return {**base, "online": False}
+            self.brillo = brillo_real(e)
             return {**base, "online": True, "encendida": bool(e.get("is_on")),
-                    "brillo": max(1, round(e.get("brightness", 1000) / 10)),
-                    "color": color_hex(e)}
+                    "brillo": self.brillo, "color": color_hex(e)}
         except Exception:
             return {**base, "online": False}
 
     def aplicar(self, cambios):
         with self.lock:
             dev = self._conectar()
+            brillo = max(1, min(100, int(cambios.get("brillo") or self.brillo)))
             if "color" in cambios:
+                # En modo color el brillo va dentro del color: se manda junto, así elegir un color no lo sube al 100%
                 c = cambios["color"].lstrip("#")
-                dev.set_colour(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
-            if "blanco" in cambios:
-                brillo = max(1, min(100, int(cambios.get("brillo") or 100)))
+                h, s, _ = colorsys.rgb_to_hsv(int(c[0:2], 16) / 255, int(c[2:4], 16) / 255, int(c[4:6], 16) / 255)
+                dev.set_hsv(h, s, brillo / 100)
+            elif "blanco" in cambios:
                 dev.set_white_percentage(brillo, max(0, min(100, int(cambios["blanco"]))))
             elif "brillo" in cambios:
-                dev.set_brightness_percentage(max(1, min(100, int(cambios["brillo"]))))
+                dev.set_brightness_percentage(brillo)
+            if "color" in cambios or "blanco" in cambios or "brillo" in cambios:
+                self.brillo = brillo
             if "encendida" in cambios:
                 (dev.turn_on if cambios["encendida"] else dev.turn_off)()
 
