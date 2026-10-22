@@ -735,7 +735,7 @@ async function refrescarEfectos() {
 
 // ---- modo música: el micrófono del celular escucha y cada golpe de bajo cambia las luces ----
 // Las lamparitas aguantan unos 3 o 4 cambios por segundo, así que se reacciona a los golpes y no a cada sonido.
-const MODOS_MUSICA = [['cadena', 'Cadena'], ['todas', 'Todas juntas'], ['arcoiris', 'Arcoíris']];
+const MODOS_MUSICA = [['techno', 'De a una'], ['cadena', 'Cadena'], ['todas', 'Todas juntas'], ['arcoiris', 'Arcoíris']];
 const musicaPantalla = document.getElementById('musica');
 const mus = { modo: 'cadena', sens: 5 };
 try { Object.assign(mus, JSON.parse(localStorage.getItem('musica')) || {}); } catch (e) {}
@@ -794,7 +794,12 @@ function golpe(fuerza) {
   const ids = mus.ids, n = ids.length, envio = {};
   if (!n) return;
   const brillo = Math.round(55 + 45 * fuerza);
-  if (mus.modo === 'cadena') {   // una luz por golpe, recorriendo la sala; la anterior queda tenue
+  if (mus.modo === 'techno') {   // una sola luz prendida por golpe y las demás apagadas, como en un boliche
+    const actual = mus.paso % n;
+    mus.hue += .09;
+    // A las apagadas se les repite la orden en cada golpe, por si alguna se perdió
+    ids.forEach((x, i) => envio[x] = i === actual ? { color: hsvAHex(mus.hue), brillo: 100 } : { color: '#000000', brillo: 0 });
+  } else if (mus.modo === 'cadena') {   // una luz por golpe, recorriendo la sala; la anterior queda tenue
     const actual = mus.paso % n, antes = (mus.paso + n - 1) % n;
     mus.hue += .09;
     envio[ids[actual]] = { color: hsvAHex(mus.hue), brillo };
@@ -808,7 +813,7 @@ function golpe(fuerza) {
   }
   mus.paso++;
   musicaPantalla.querySelector('.pulso').style.setProperty('--c', hsvAHex(mus.hue));
-  for (const [x, c] of Object.entries(envio)) reflejar(tarjetas[x], { encendida: true, color: c.color, brillo: c.brillo });
+  for (const [x, c] of Object.entries(envio)) reflejar(tarjetas[x], c.brillo ? { encendida: true, color: c.color, brillo: c.brillo } : { encendida: false });
   fetch('/api/musica', { method: 'POST', body: JSON.stringify(envio) }).catch(() => {});
 }
 const hsvAHex = h => hueAHex(Math.round((((h % 1) + 1) % 1) * 359));

@@ -56,7 +56,7 @@ class LuzFalsa:
             self.color = ("#ffb86b", "#fff1dc", "#cfe3ff")[min(2, int(cambios["blanco"]) // 34)]
 
     def rapido(self, color, brillo):
-        self.aplicar({"encendida": True, "color": color, "brillo": brillo})
+        self.aplicar({"encendida": False} if brillo <= 0 else {"encendida": True, "color": color, "brillo": brillo})
 
 
 def color_hex(estado):
@@ -113,9 +113,15 @@ class LuzTuya:
                 dev.set_socketPersistent(True)
                 dev.status()   # sin esto no sabe qué sabe hacer la luz y no acepta cambios sin esperar
                 self.dev_rapido = dev
+            if int(brillo) <= 0:   # brillo 0 = apagada (modo música de a una luz)
+                self.dev_rapido.set_value(20, False, nowait=True)
+                return
             c = color.lstrip("#")
             h, s, _ = colorsys.rgb_to_hsv(int(c[0:2], 16) / 255, int(c[2:4], 16) / 255, int(c[4:6], 16) / 255)
-            self.dev_rapido.set_hsv(h, s, max(1, min(100, int(brillo))) / 100, nowait=True)
+            v = max(10, min(1000, int(brillo) * 10))
+            # Prender, modo color y color en un solo mensaje (20, 21 y 24 son los datos de estas lámparas)
+            self.dev_rapido.set_multiple_values({"20": True, "21": "colour", "24": "%04x%04x%04x" % (round(h * 360), round(s * 1000), v)},
+                                                nowait=True)
         except Exception:
             if self.dev_rapido:
                 self.dev_rapido.close()
@@ -321,7 +327,8 @@ def musica(cambios):
     for ident, c in cambios.items():
         luz = LUCES.get(ident)
         if luz and re.fullmatch(r"#[0-9a-fA-F]{6}", str(c.get("color"))):
-            threading.Thread(target=luz.rapido, args=(c["color"], c.get("brillo") or 100), daemon=True).start()
+            brillo = c.get("brillo")
+            threading.Thread(target=luz.rapido, args=(c["color"], 100 if brillo is None else brillo), daemon=True).start()
 
 
 # ---- Viaje al trabajo y clima ----
