@@ -834,7 +834,8 @@ function ubicarMosaicos() {
   // Primero las salas grandes, después las luces sueltas, en el orden de devices.json
   for (const s of Object.values(salas)) if (s.mosaico) grillaLuces.appendChild(s.mosaico);
   const enSala = id => Object.values(salas).some(s => s.luces.includes(id));
-  for (const [id, m] of Object.entries(mosaicos).sort((a, b) => enSala(b[0]) - enSala(a[0]))) {
+  for (const [id, m] of Object.entries(mosaicos).sort((a, b) => enSala(b[0]) - enSala(a[0])
+      || nombreLuz(a[0]).localeCompare(nombreLuz(b[0]), 'es', { numeric: true }))) {
     const sala = salaDe(id);
     m.classList.toggle('mini', !!sala);
     (sala ? sala.pantalla.querySelector('.miembros .grilla') : grillaLuces).appendChild(m);
