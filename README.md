@@ -73,7 +73,7 @@ Abrir `http://localhost:8080`.
    y agregar `"ip"` y `"version"` a cada entrada de `devices.json` (ver `devices.example.json`).
    Para manejar varias luces juntas (por ejemplo las 3 del living), copiar `grupos.example.json` como `grupos.json`
    con los nombres de las luces de cada grupo. Cada luz se sigue manejando sola; el grupo entero se prende,
-   apaga o cambia de color con `POST /api/grupos/<nombre>`, y Rickuel lo entiende por su nombre.
+   apaga o cambia de color con `POST /api/grupos/<nombre>`, y Rickuel lo entiende por su nombre. En el panel cada grupo es una **sala**: las de varias luces tienen su mosaico y su pantalla con cada luz adentro.
 4. Arrancar:
    ```bash
    python server.py

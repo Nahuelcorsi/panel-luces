@@ -139,7 +139,8 @@ class LuzTuya:
 
 def cargar_luces():
     if DEMO:
-        return [LuzFalsa("Dormitorio", "demo1"), LuzFalsa("Lámpara", "demo2")]
+        return [LuzFalsa(n, f"demo{i}") for i, n in enumerate(
+            ["Habitacion", "Lampara", "Living 1", "Living 2", "Living 3", "Cocina"], 1)]
     ruta = os.path.join(BASE, "devices.json")
     if not os.path.exists(ruta):
         sys.exit("Falta devices.json. Generalo con: python -m tinytuya wizard")
@@ -950,6 +951,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json([l.estado() for l in LUCES.values()])
         if self.path == "/api/grupos":
             return self._json([g.estado() for g in GRUPOS.values()])
+        if self.path == "/api/salas":   # solo qué luces tiene cada grupo, sin preguntarle nada a las luces
+            return self._json([{"id": i, "nombre": g.nombre, "luces": g.ids} for i, g in GRUPOS.items()])
         if self.path == "/api/viaje":
             return self._json(VIAJE.obtener())
         if self.path == "/api/clima":

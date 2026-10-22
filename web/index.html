@@ -78,6 +78,39 @@
   .m-luz.on .m-power svg { stroke: #101218; }
   .m-luz.offline { opacity: .45; }
 
+  /* Brillo dentro del mosaico: se llena según el brillo y se cambia arrastrando de costado */
+  .m-luz { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+  .m-luz .relleno { position: absolute; inset: 0 auto 0 0; width: 0; background: color-mix(in srgb, var(--color) 26%, transparent);
+                    transition: width .3s; pointer-events: none; }
+  .m-luz.on .relleno { width: var(--p, 0%); }
+  .m-luz.arrastrando .relleno { transition: none; }
+  .m-luz .gran-pct { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 44px;
+                     font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; opacity: 0; transition: opacity .2s; }
+  .m-luz.arrastrando .gran-pct { opacity: 1; }
+  .m-luz.arrastrando .textos, .m-luz.arrastrando .m-icono { opacity: .15; }
+
+  /* Salas: un mosaico por sala; las de varias luces abren su propia pantalla */
+  .m-sala { grid-column: span 2; }
+  .m-luz .m-icono.emoji { font-size: 24px; }
+  .m-sala.on .m-icono { box-shadow: 0 0 26px color-mix(in srgb, var(--color) 80%, transparent); }
+  .m-sala .puntos { display: flex; gap: 5px; margin-top: 8px; }
+  .m-sala .puntos i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .18); }
+  .m-sala .puntos i.on { background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .mini { min-height: 104px; padding: 14px; }
+  .mini .m-power { width: 44px; height: 44px; top: 10px; right: 10px; }
+  .mini .m-titulo { font-size: 16px; }
+  .luz.sala { justify-content: flex-start; gap: 26px; }
+  .luz.sala .power { width: 128px; height: 128px; }
+  .luz.sala .power svg { width: 48px; height: 48px; }
+  .miembros h2 { margin-top: 4px; }
+
+  /* Resumen de la casa debajo del reloj */
+  .resumen { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+  .pastilla { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px; font-size: 14px;
+              color: var(--suave); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .pastilla b { color: var(--texto); font-weight: 600; }
+  .pastilla:active { background: rgba(255, 255, 255, .18); }
+
   .m-clima { justify-content: center; gap: 10px; }
   .m-clima .fila { display: flex; align-items: center; gap: 8px; font-size: 15px; }
   .m-clima .fila b { font-size: 24px; font-variant-numeric: tabular-nums; }
@@ -217,9 +250,15 @@
 <div id="sin-servidor" class="oculta">Esperando al servidor del panel… Si recién prendiste el celular, tarda menos de un minuto.</div>
 
 <main id="inicio">
-  <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
+  <header class="reloj"><div class="hora"></div><div class="fecha"></div>
+    <div class="resumen">
+      <button class="pastilla" id="p-luces">💡 <b>-</b> prendidas</button>
+      <button class="pastilla oculta" id="p-clima">🌡️ <b></b></button>
+      <button class="pastilla oculta" id="p-viaje">🚗 Salir <b></b></button>
+    </div>
+  </header>
+  <section class="bloque"><h2>Salas</h2><div class="grilla" id="grilla-luces"></div></section>
   <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
-  <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
   <section class="bloque"><h2>Rutinas</h2>
     <div class="grilla">
       <div class="mosaico m-rutina" id="m-despertador">
@@ -267,7 +306,7 @@
   <div class="onda"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></div>
   <div class="oido"></div>
   <div class="respuesta"></div>
-  <div class="ayuda">Probá: "prendé la lámpara" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
+  <div class="ayuda">Probá: "prendé el living" · "apagá la cocina" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
     "¿a qué hora salgo?" · "¿cómo está el clima?" · "despertador a las 6 y media" · "modo noche"</div>
 </div>
 
@@ -317,16 +356,18 @@ function hueAHex(h) {
 }
 
 // ---- envío (agrupa y limita la frecuencia mientras deslizás) ----
+// `id` es una luz o una sala: a una sala se le manda una sola orden y el servidor cambia todas sus luces a la vez.
 function enviar(id, cambios, ya) {
-  tocado[id] = Date.now();
+  const sala = salas[id];
+  for (const x of sala ? sala.luces : [id]) tocado[x] = Date.now();
   pendiente[id] = Object.assign(pendiente[id] || {}, cambios);
   if (temporizador[id] && !ya) return;
   const mandar = async () => {
     const lote = pendiente[id]; pendiente[id] = null; temporizador[id] = null;
     if (!lote) return;
     try {
-      const r = await fetch('/api/luces/' + id, { method: 'POST', body: JSON.stringify(lote) });
-      if (r.ok && !tocadoReciente(id)) pintar(await r.json());
+      const r = await fetch(sala ? '/api/grupos/' + encodeURIComponent(id) : '/api/luces/' + id, { method: 'POST', body: JSON.stringify(lote) });
+      if (r.ok && !sala && !tocadoReciente(id)) pintar(await r.json());
     } catch (e) {}
   };
   if (ya) { clearTimeout(temporizador[id]); return mandar(); }
@@ -334,27 +375,42 @@ function enviar(id, cambios, ya) {
 }
 const tocadoReciente = id => Date.now() - (tocado[id] || 0) < 2500;
 
-// ---- navegación: inicio <-> detalle ----
+// ---- navegación: inicio <-> detalle (una luz se puede abrir desde la pantalla de su sala) ----
 let abierta = null;
+const pila = [];   // pantallas abiertas antes de la actual, para que "atrás" vuelva a la sala
 if (history.state) history.replaceState(null, '');   // al recargar se arranca siempre en el inicio
-function abrir(s) {
+function mostrar(s) {
   detalle.querySelectorAll('.luz.activa').forEach(x => x.classList.remove('activa'));
   s.classList.add('activa');
   abierta = s;
   detalle.classList.remove('oculta');
   inicio.classList.add('oculta');
   document.body.classList.toggle('en-rickuel', s.classList.contains('rickuel'));
-  if (!history.state) history.pushState({ detalle: true }, '');
+  const anterior = pila[pila.length - 1];
+  document.getElementById('volver').lastChild.textContent = anterior ? anterior.querySelector('.nombre').textContent : 'Inicio';
   pintarAmbiente();
 }
-function cerrar() {
+function abrir(s) {
+  if (abierta) pila.push(abierta);
+  history.pushState({ detalle: true }, '');
+  mostrar(s);
+}
+function cerrar() {   // vuelve una pantalla
   if (!abierta) return;
   abierta.classList.remove('activa');
+  const anterior = pila.pop();
+  if (anterior) return mostrar(anterior);
   abierta = null;
   document.body.classList.remove('en-rickuel');
   detalle.classList.add('oculta');
   inicio.classList.remove('oculta');
   pintarAmbiente();
+}
+function irAlInicio() {
+  if (!abierta) return;
+  const pasos = pila.length + 1;
+  pila.length = 0;
+  history.state ? history.go(-pasos) : cerrar();
 }
 document.getElementById('volver').onclick = () => history.state ? history.back() : cerrar();
 addEventListener('popstate', cerrar);   // botón "atrás" de Android
@@ -411,30 +467,67 @@ function crear(l) {
   });
   detalle.appendChild(s);
 
-  // Mosaico en el inicio: tocarlo abre la luz, el botón de la esquina la prende o apaga
-  const m = document.createElement('div');
-  m.className = 'mosaico m-luz';
-  m.innerHTML = `<button class="abrir" aria-label="Abrir ${l.nombre}"></button>
-    <div class="m-icono">${FOCO}</div>
-    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
-    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
-  m.querySelector('.m-titulo').textContent = l.nombre;
-  m.querySelector('.abrir').onclick = () => abrir(s);
-  m.querySelector('.m-power').onclick = alternar;
-  grillaLuces.appendChild(m);
+  // Mosaico: tocarlo abre la luz, el botón de la esquina la prende o apaga y arrastrar de costado cambia el brillo.
+  // Va en el inicio o, si la luz es de una sala con varias, en la pantalla de esa sala (ver ubicarMosaicos).
+  const m = mosaico(l.nombre, FOCO, () => abrir(s), alternar);
+  arrastrarBrillo(m, l.id, () => +brillo.value, v => { reflejar(s, { encendida: true, brillo: v }); });
   mosaicos[l.id] = m;
-
-  // Chip para elegir si esta luz entra en las escenas
-  const chip = document.createElement('button');
-  chip.className = 'chip';
-  chip.innerHTML = '<i></i><span></span>';
-  chip.querySelector('span').textContent = l.nombre;
-  chip.dataset.id = l.id;
-  chip.onclick = () => { fueraDeEscenas[l.id] = !fueraDeEscenas[l.id]; guardarSelector(); pintarSelector(); };
-  document.getElementById('selector').appendChild(chip);
-  pintarSelector();
+  ubicarMosaicos();
   pintarRutinas();   // para que la luz nueva aparezca en el despertador y el modo trabajo
   return s;
+}
+
+function mosaico(nombre, icono, alAbrir, alPrender) {
+  const m = document.createElement('div');
+  m.className = 'mosaico m-luz';
+  m.innerHTML = `<div class="relleno"></div><button class="abrir"></button>
+    <div class="m-icono">${icono}</div>
+    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
+    <div class="gran-pct"></div>
+    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
+  m.querySelector('.m-titulo').textContent = nombre;
+  m.querySelector('.abrir').setAttribute('aria-label', 'Abrir ' + nombre);
+  m.querySelector('.abrir').onclick = () => { if (!m.recienArrastrado) alAbrir(); };
+  m.querySelector('.m-power').onclick = () => { if (!m.recienArrastrado) alPrender(); };
+  return m;
+}
+
+// Arrastrar de costado sobre un mosaico cambia el brillo (como las tarjetas de Home Assistant); de arriba a abajo sigue desplazando.
+function arrastrarBrillo(m, id, brilloActual, alCambiar) {
+  let x0, y0, base, decidido = false, activo = false;
+  m.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; base = brilloActual(); decidido = activo = false; });
+  m.addEventListener('pointermove', e => {
+    if (x0 == null || (decidido && !activo)) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (!decidido) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      decidido = true;
+      activo = Math.abs(dx) > Math.abs(dy) && !m.classList.contains('offline');
+      if (!activo) return;
+      m.setPointerCapture(e.pointerId);
+      m.classList.add('arrastrando');
+    }
+    const v = Math.max(1, Math.min(100, Math.round(base + dx / m.offsetWidth * 100)));
+    m.querySelector('.gran-pct').textContent = v + '%';
+    alCambiar(v);
+    enviar(id, { encendida: true, brillo: v });
+  });
+  const soltar = () => {
+    if (activo) { m.recienArrastrado = true; setTimeout(() => m.recienArrastrado = false, 350); }
+    m.classList.remove('arrastrando');
+    x0 = null; activo = false;
+  };
+  m.addEventListener('pointerup', soltar);
+  m.addEventListener('pointercancel', soltar);
+}
+
+// Refleja en la pantalla un cambio que se está mandando, sin esperar a la luz
+function reflejar(s, cambios) {
+  if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
+  if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+  if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+  if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+  textoEstado(s);
 }
 
 function textoEstado(s) {
@@ -457,7 +550,9 @@ function pintarMosaico(s) {
   m.classList.toggle('on', on && !off);
   m.classList.toggle('offline', off);
   m.style.setProperty('--color', s.style.getPropertyValue('--color') || '#ffb347');
+  m.style.setProperty('--p', s.querySelector('.brillo').value + '%');
   m.querySelector('.m-sub').textContent = off ? 'Sin conexión' : on ? `Prendida · ${s.querySelector('.brillo').value}%` : 'Apagada';
+  pintarSalas();
 }
 
 function pintar(l) {
@@ -481,18 +576,142 @@ async function refrescar() {
     aviso.classList.add('oculta');
   } catch (e) { aviso.classList.remove('oculta'); }
 }
-refrescar();
+
+// ---- salas: luces que se manejan juntas (grupos.json del servidor) ----
+// Las de varias luces tienen mosaico y pantalla propia, con sus luces adentro para manejarlas por separado.
+// Las de una sola luz y las luces que no están en ninguna sala se muestran como una luz común en el inicio.
+const salas = {};   // id -> { nombre, luces, mosaico, pantalla }
+const ICONOS_SALA = [['living', '🛋️'], ['comedor', '🍽️'], ['cocina', '🍳'], ['habitacion', '🛏️'], ['dormitorio', '🛏️'],
+  ['bano', '🛁'], ['patio', '🌳'], ['jardin', '🌳'], ['oficina', '💻'], ['escritorio', '💻']];
+const iconoSala = n => (ICONOS_SALA.find(([c]) => sinTildes(n).includes(c)) || [, '💡'])[1];
+const salaGrande = s => s.luces.length > 1;
+const salaDe = id => Object.values(salas).find(s => salaGrande(s) && s.luces.includes(id));
+
+async function cargarSalas() {
+  let lista = [];
+  try { lista = await (await fetch('/api/salas')).json(); } catch (e) { return; }
+  for (const { id, nombre, luces } of lista) {
+    if (salas[id]) continue;
+    const sala = salas[id] = { nombre, luces };
+    if (!salaGrande(sala)) continue;
+    const p = sala.pantalla = document.createElement('section');
+    p.className = 'luz sala';
+    p.innerHTML = `
+      <div class="cabecera"><h1 class="nombre"></h1><div class="estado"></div></div>
+      <div class="centro"><button class="power" aria-label="Encender o apagar la sala">${ICONO}</button></div>
+      <div class="controles">
+        <div><div class="fila-titulo"><span>Brillo de toda la sala</span><span class="pct"></span></div>
+          <input class="brillo" type="range" min="1" max="100"></div>
+        <div><div class="fila-titulo"><span>Color</span></div><input class="tono" type="range" min="0" max="359"></div>
+        <div class="blancos">${PRESETS.map(x => `<button class="blanco" data-t="${x[1]}"><i style="background:${x[2]}"></i>${x[0]}</button>`).join('')}</div>
+      </div>
+      <div class="miembros"><h2>Cada luz</h2><div class="grilla"></div></div>`;
+    p.querySelector('.nombre').textContent = nombre;
+    const miembros = () => sala.luces.map(x => tarjetas[x]).filter(x => x && !x.classList.contains('offline'));
+    const aplicar = (cambios, ya) => { miembros().forEach(x => reflejar(x, cambios)); enviar(id, cambios, ya); };
+    const alternar = () => aplicar({ encendida: !sala.on }, true);
+    p.querySelector('.power').onclick = alternar;
+    const brillo = p.querySelector('.brillo');
+    brillo.oninput = () => aplicar({ encendida: true, brillo: +brillo.value });
+    p.querySelector('.tono').oninput = e => aplicar({ encendida: true, color: hueAHex(+e.target.value) });
+    p.querySelectorAll('.blanco').forEach(b => b.onclick = () => aplicar({ encendida: true, blanco: +b.dataset.t, brillo: +brillo.value }, true));
+    detalle.appendChild(p);
+
+    const m = sala.mosaico = mosaico(nombre, iconoSala(nombre), () => abrir(p), alternar);
+    m.classList.add('m-sala');
+    m.querySelector('.m-icono').classList.add('emoji');
+    m.querySelector('.textos').insertAdjacentHTML('beforeend', '<div class="puntos"></div>');
+    arrastrarBrillo(m, id, () => sala.brillo || 100, v => miembros().forEach(x => reflejar(x, { encendida: true, brillo: v })));
+  }
+  ubicarMosaicos();
+  pintarSalas();
+}
+
+function ubicarMosaicos() {
+  // Primero las salas grandes, después las luces sueltas, en el orden de devices.json
+  for (const s of Object.values(salas)) if (s.mosaico) grillaLuces.appendChild(s.mosaico);
+  const enSala = id => Object.values(salas).some(s => s.luces.includes(id));
+  for (const [id, m] of Object.entries(mosaicos).sort((a, b) => enSala(b[0]) - enSala(a[0]))) {
+    const sala = salaDe(id);
+    m.classList.toggle('mini', !!sala);
+    (sala ? sala.pantalla.querySelector('.miembros .grilla') : grillaLuces).appendChild(m);
+    // Una luz que es una sala sola (la cocina) lleva el ícono de la sala
+    const sola = Object.values(salas).find(s => !salaGrande(s) && s.luces[0] === id);
+    if (sola && !m.querySelector('.m-icono.emoji')) {
+      m.querySelector('.m-icono').classList.add('emoji');
+      m.querySelector('.m-icono').textContent = iconoSala(sola.nombre);
+    }
+  }
+  pintarSelector();
+}
+
+function pintarSalas() {
+  let prendidas = 0;
+  for (const s of Object.values(tarjetas)) if (s.classList.contains('on') && !s.classList.contains('offline')) prendidas++;
+  const pl = document.getElementById('p-luces');
+  pl.querySelector('b').textContent = prendidas;
+  pl.lastChild.textContent = prendidas === 1 ? ' prendida' : ' prendidas';
+  for (const sala of Object.values(salas)) {
+    if (!sala.mosaico) continue;
+    const ls = sala.luces.map(x => tarjetas[x]).filter(Boolean);
+    const vivas = ls.filter(x => !x.classList.contains('offline')), on = vivas.filter(x => x.classList.contains('on'));
+    sala.on = on.length > 0;
+    sala.brillo = on.length ? Math.round(on.reduce((t, x) => t + +x.querySelector('.brillo').value, 0) / on.length) : null;
+    const color = on.length ? on[0].style.getPropertyValue('--color') : '#ffb347';
+    const texto = !vivas.length ? 'Sin conexión' : !on.length ? (ls.length > 1 ? 'Apagadas' : 'Apagada')
+      : on.length === ls.length ? `${ls.length > 1 ? 'Todas prendidas' : 'Prendida'} · ${sala.brillo}%` : `${on.length} de ${ls.length} prendidas · ${sala.brillo}%`;
+    const m = sala.mosaico, p = sala.pantalla;
+    m.classList.toggle('on', sala.on);
+    m.classList.toggle('offline', !vivas.length);
+    m.style.setProperty('--color', color);
+    m.style.setProperty('--p', (sala.brillo || 0) + '%');
+    m.querySelector('.m-sub').textContent = texto;
+    m.querySelector('.puntos').innerHTML = ls.map(x => x.classList.contains('on') && !x.classList.contains('offline')
+      ? `<i class="on" style="--c:${x.style.getPropertyValue('--color')}"></i>` : '<i></i>').join('');
+    p.classList.toggle('on', sala.on);
+    p.classList.toggle('offline', !vivas.length);
+    p.style.setProperty('--color', color);
+    p.querySelector('.estado').textContent = texto;
+    if (sala.brillo && document.activeElement !== p.querySelector('.brillo')) {
+      p.querySelector('.brillo').value = sala.brillo;
+      p.querySelector('.brillo').style.setProperty('--p', sala.brillo + '%');
+      p.querySelector('.pct').textContent = sala.brillo + '%';
+    }
+    if (p === abierta) pintarAmbiente();
+  }
+}
+document.getElementById('p-luces').onclick = () => grillaLuces.scrollIntoView({ behavior: 'smooth' });
+
+cargarSalas().then(refrescar);
 setInterval(refrescar, 4000);
+setInterval(cargarSalas, 60000);   // por si se reinició el servidor con salas nuevas
 
 // ---- escenas ----
 // Se guardan las luces que NO entran en las escenas, así una luz nueva entra sola
 let fueraDeEscenas = {};
 try { fueraDeEscenas = JSON.parse(localStorage.getItem('fuera-de-escenas')) || {}; } catch (e) {}
 function guardarSelector() { try { localStorage.setItem('fuera-de-escenas', JSON.stringify(fueraDeEscenas)); } catch (e) {} }
+// Un chip por sala grande y uno por cada luz suelta; el de una sala la saca o la pone entera
 function pintarSelector() {
+  const cont = document.getElementById('selector');
+  const grupos = [...Object.values(salas).filter(salaGrande).map(s => [s.nombre, s.luces.filter(x => tarjetas[x])]),
+                  ...Object.keys(tarjetas).filter(id => !salaDe(id)).map(id => [nombreLuz(id), [id]])];
+  if (cont.dataset.armado !== grupos.map(g => g[1].join()).join('|')) {
+    cont.dataset.armado = grupos.map(g => g[1].join()).join('|');
+    cont.innerHTML = '';
+    for (const [nombre, ids] of grupos) {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.innerHTML = '<i></i><span></span>';
+      chip.querySelector('span').textContent = nombre;
+      chip.dataset.ids = ids.join();
+      chip.onclick = () => { const fuera = !fueraDeEscenas[ids[0]]; ids.forEach(x => fueraDeEscenas[x] = fuera); guardarSelector(); pintarSelector(); };
+      cont.appendChild(chip);
+    }
+  }
   let alguna = false;
-  document.querySelectorAll('#selector .chip').forEach(c => {
-    const sel = !fueraDeEscenas[c.dataset.id];
+  cont.querySelectorAll('.chip').forEach(c => {
+    const sel = !fueraDeEscenas[c.dataset.ids.split(',')[0]];
     c.classList.toggle('sel', sel);
     c.querySelector('i').textContent = sel ? '✓' : '';
     alguna = alguna || sel;
@@ -502,11 +721,7 @@ function pintarSelector() {
 function aplicarEscena(cambios) {
   for (const s of Object.values(tarjetas)) {
     if (s.classList.contains('offline') || fueraDeEscenas[s.dataset.id]) continue;
-    s.classList.toggle('on', cambios.encendida);          // respuesta inmediata en la pantalla
-    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
-    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
-    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
-    textoEstado(s);
+    reflejar(s, cambios);   // respuesta inmediata en la pantalla
     enviar(s.dataset.id, cambios, true);
   }
 }
@@ -571,6 +786,9 @@ function pintarViaje() {
   $('.aviso').textContent = 'Con el tráfico en vivo de TomTom';
   mv.querySelector('.m-grande').textContent = hora(salida);
   mv.querySelector('.m-sub').textContent = faltan >= 0 && faltan <= 90 ? sub : `Salir ${cuando} · ${v.minutos} min`;
+  const pv = document.getElementById('p-viaje');
+  pv.classList.remove('oculta');
+  pv.querySelector('b').textContent = (cuando === 'hoy' ? '' : cuando + ' ') + hora(salida);
   document.querySelector('#noche .salida').textContent = `Salir ${cuando} a las ${hora(salida)}`;
 }
 async function refrescarViaje() {
@@ -607,6 +825,8 @@ clima.innerHTML = `<div class="cabecera"><h1 class="nombre">Clima</h1></div>
   <div class="lugar" data-l="casa"></div><div class="lugar" data-l="trabajo"></div>`;
 detalle.appendChild(clima);
 document.getElementById('m-clima').onclick = () => abrir(clima);
+document.getElementById('p-clima').onclick = () => abrir(clima);
+document.getElementById('p-viaje').onclick = () => abrir(viaje);
 
 // Códigos del tiempo de Open-Meteo (WMO): [códigos, descripción, ícono de día, ícono de noche]
 const TIEMPO = [[[0], 'Despejado', '☀️', '🌙'], [[1], 'Mayormente despejado', '🌤️', '🌙'], [[2], 'Parcialmente nublado', '⛅', '☁️'],
@@ -639,6 +859,12 @@ async function refrescarClima() {
       <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia próx. 3 h ${c.lluvia_3h}%</span><span>Próx. 12 h ${c.lluvia_12h}%</span>
         <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
     filas.push(`<div class="fila"><span>${icono}</span><b>${grados(c.temp)}</b><span>${c.nombre}</span></div>`);
+    if (clave === 'casa') {
+      const pc = document.getElementById('p-clima');
+      pc.classList.remove('oculta');
+      pc.firstChild.textContent = icono + ' ';
+      pc.querySelector('b').textContent = grados(c.temp);
+    }
   }
   const mc = document.getElementById('m-clima');
   mc.querySelector('.filas').innerHTML = filas.join('');
@@ -839,22 +1065,26 @@ function horaDicha(t) {
 }
 
 function lucesNombradas(t) {
+  // "living 1" es esa luz; "living" solo es toda la sala
   const ids = Object.keys(tarjetas).filter(id => t.includes(sinTildes(nombreLuz(id))));
+  for (const s of Object.values(salas)) {
+    if (t.includes(sinTildes(s.nombre)) && !s.luces.some(x => ids.includes(x))) ids.push(...s.luces.filter(x => tarjetas[x]));
+  }
   return ids.length ? ids : Object.keys(tarjetas);
 }
 function cambiarLuces(ids, cambios) {
   for (const id of ids) {
     const s = tarjetas[id];
     if (!s || s.classList.contains('offline')) continue;
-    if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
-    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
-    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
-    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
-    textoEstado(s);
+    reflejar(s, cambios);
     enviar(id, cambios, true);
   }
 }
-const quienes = ids => ids.length === Object.keys(tarjetas).length ? (ids.length > 1 ? 'las luces' : 'la luz') : ids.map(nombreLuz).join(' y ');
+function quienes(ids) {
+  if (ids.length === Object.keys(tarjetas).length) return ids.length > 1 ? 'las luces' : 'la luz';
+  const sala = Object.values(salas).find(s => salaGrande(s) && s.luces.length === ids.length && s.luces.every(x => ids.includes(x)));
+  return sala ? 'el ' + sala.nombre.toLowerCase() : ids.map(nombreLuz).join(' y ');
+}
 const esApagar = t => /\b(apag|desactiv|sac|cancel)/.test(t);
 
 function entenderComando(texto) {
@@ -940,7 +1170,7 @@ setInterval(revisarNoche, 15000);
 // Si nadie toca la pantalla por un rato, vuelve sola al inicio
 addEventListener('pointerdown', () => { ultimoToque = Date.now(); }, true);
 setInterval(() => {
-  if (abierta && Date.now() - ultimoToque > 2 * 60000) history.state ? history.back() : cerrar();
+  if (abierta && Date.now() - ultimoToque > 2 * 60000) irAlInicio();
 }, 10000);
 
 // ---- que la pantalla no se apague (si el navegador lo permite) ----
