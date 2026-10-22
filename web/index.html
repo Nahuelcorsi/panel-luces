@@ -778,7 +778,8 @@ async function empezarMusica(salaId) {
     mus.prom = mus.prom ? mus.prom * .94 + bajo * .06 : bajo;
     nivel.style.width = Math.min(100, todo / 1.2) + '%';
     const umbral = 1.6 - mus.sens * .08, ahora = performance.now();   // sensibilidad 1 = solo golpes fuertes, 10 = casi todo
-    if (bajo > mus.prom * umbral && bajo > 40 && ahora - mus.ultimo > 260) {
+    // En "De a una" se espacian más los cambios: las lamparitas tardan en apagarse y si no se pisan
+    if (bajo > mus.prom * umbral && bajo > 40 && ahora - mus.ultimo > (mus.modo === 'techno' ? 620 : 260)) {
       mus.ultimo = ahora;
       golpe(Math.min(1, (bajo / Math.max(mus.prom, 1) - 1) * 2));
       pulso.style.transform = 'scale(1.25)';
@@ -795,17 +796,17 @@ function golpe(fuerza) {
   if (!n) return;
   const brillo = Math.round(55 + 45 * fuerza);
   if (mus.modo === 'techno') {   // una sola luz prendida por golpe y las demás apagadas, como en un boliche
-    const actual = mus.paso % n;
-    mus.hue += .09;
+    const actual = mus.paso % n, color = TECHNO[mus.paso % TECHNO.length];
     // A las apagadas se les repite la orden en cada golpe, por si alguna se perdió
-    ids.forEach((x, i) => envio[x] = i === actual ? { color: hsvAHex(mus.hue), brillo: 100 } : { color: '#000000', brillo: 0 });
+    ids.forEach((x, i) => envio[x] = i === actual ? { color, brillo: 70 } : { color: '#000000', brillo: 0 });
+    musicaPantalla.querySelector('.pulso').style.setProperty('--c', color);
     // Destello: la que se prendió se apaga enseguida, así cuando llega el próximo golpe ya está oscura
     // (las lamparitas tardan en apagarse del todo, y si se espera al golpe siguiente quedan dos prendidas)
     clearTimeout(mus.destello);
     mus.destello = setTimeout(() => {
       fetch('/api/musica', { method: 'POST', body: JSON.stringify({ [ids[actual]]: { color: '#000000', brillo: 0 } }) }).catch(() => {});
       reflejar(tarjetas[ids[actual]], { encendida: false });
-    }, 150);
+    }, 120);
   } else if (mus.modo === 'cadena') {   // una luz por golpe, recorriendo la sala; la anterior queda tenue
     const actual = mus.paso % n, antes = (mus.paso + n - 1) % n;
     mus.hue += .09;
@@ -818,11 +819,13 @@ function golpe(fuerza) {
     mus.hue += .07;
     ids.forEach((x, i) => envio[x] = { color: hsvAHex(mus.hue + i / n), brillo });
   }
+  if (mus.modo !== 'techno') musicaPantalla.querySelector('.pulso').style.setProperty('--c', hsvAHex(mus.hue));
   mus.paso++;
-  musicaPantalla.querySelector('.pulso').style.setProperty('--c', hsvAHex(mus.hue));
   for (const [x, c] of Object.entries(envio)) reflejar(tarjetas[x], c.brillo ? { encendida: true, color: c.color, brillo: c.brillo } : { encendida: false });
   fetch('/api/musica', { method: 'POST', body: JSON.stringify(envio) }).catch(() => {});
 }
+// Colores oscuros y saturados para "De a una": nada de blancos, amarillos ni celestes claros
+const TECHNO = ['#ff0000', '#2a00ff', '#ff0050', '#7000ff', '#ff1800', '#0030ff', '#c000ff', '#ff0020'];
 const hsvAHex = h => hueAHex(Math.round((((h % 1) + 1) % 1) * 359));
 
 function pararMusica() {

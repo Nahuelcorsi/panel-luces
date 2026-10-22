@@ -94,12 +94,27 @@ class LuzTuya:
         self.dev_rapido = None   # conexión aparte, siempre abierta, para efectos y música
         self.lock_rapido = threading.Lock()
         self.ultimo_rapido = 0
+        self.pendiente, self.mandando = None, False
+        self.ultimo_estado = None
 
     def rapido(self, color, brillo):
         """Cambio de color sin esperar respuesta (~10 ms en vez de ~400): para efectos y música.
-        Si la luz todavía está con el cambio anterior, este se descarta: mejor saltear uno que atrasarse."""
-        if not self.lock_rapido.acquire(blocking=False):
-            return
+        Si la luz todavía está con el cambio anterior, este queda esperando y pisa a cualquier otro que esperaba:
+        así nunca se atrasa más de un cambio y el último (por ejemplo, apagarse) nunca se pierde."""
+        with self.lock_rapido:
+            self.pendiente = (color, brillo)
+            if self.mandando:
+                return
+            self.mandando = True
+        while True:
+            with self.lock_rapido:
+                orden, self.pendiente = self.pendiente, None
+                if orden is None:
+                    self.mandando = False
+                    return
+            self._mandar_rapido(*orden)
+
+    def _mandar_rapido(self, color, brillo):
         try:
             if self.dev_rapido and time.time() - self.ultimo_rapido > 8:
                 # La luz corta la conexión si queda quieta, y sin esperar respuesta no nos enteramos: se abre otra
@@ -111,7 +126,6 @@ class LuzTuya:
                 dev = tinytuya.BulbDevice(d["id"], d.get("ip") or "Auto", d["key"], version=float(d.get("version") or 3.3))
                 dev.set_socketTimeout(2)
                 dev.set_socketPersistent(True)
-                dev.status()   # sin esto no sabe qué sabe hacer la luz y no acepta cambios sin esperar
                 self.dev_rapido = dev
             if int(brillo) <= 0:   # brillo 0 = apagada (modo música de a una luz)
                 self.dev_rapido.set_value(20, False, nowait=True)
@@ -126,8 +140,6 @@ class LuzTuya:
             if self.dev_rapido:
                 self.dev_rapido.close()
             self.dev_rapido = None
-        finally:
-            self.lock_rapido.release()
 
     def _conectar(self):
         """Crea el dispositivo la primera vez que se lo necesita; reintenta si no lo encuentra."""
@@ -149,14 +161,18 @@ class LuzTuya:
 
     def estado(self):
         base = {"id": self.id, "nombre": self.nombre}
+        if self.ultimo_estado and time.time() - self.ultimo_rapido < 5:
+            # Durante la música o un efecto no se le pregunta: la luz anda lenta y cada consulta atrasa los cambios
+            return self.ultimo_estado
         try:
             with self.lock:
                 e = self._conectar().state()
             if "Error" in e:
                 return {**base, "online": False}
             self.brillo = brillo_real(e)
-            return {**base, "online": True, "encendida": bool(e.get("is_on")),
-                    "brillo": self.brillo, "color": color_hex(e)}
+            self.ultimo_estado = {**base, "online": True, "encendida": bool(e.get("is_on")),
+                                  "brillo": self.brillo, "color": color_hex(e)}
+            return self.ultimo_estado
         except Exception:
             return {**base, "online": False}
 
