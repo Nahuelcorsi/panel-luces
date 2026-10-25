@@ -2,5 +2,6 @@
   "local_url": "http://192.168.0.5:11434",
   "local_modelo": "gemma3:12b",
   "gemini_key": "",
-  "gemini_modelo": "gemini-flash-lite-latest"
+  "gemini_modelo": "gemini-flash-lite-latest",
+  "voz_url": "http://192.168.0.5:8090"
 }

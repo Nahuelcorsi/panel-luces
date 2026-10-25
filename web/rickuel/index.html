@@ -62,6 +62,17 @@
 </svg>
 
     <p id="burbuja">¡Hola! Tocá el micrófono o escribime algo.</p>
+    <!-- Solo en el panel de casa: calificar la respuesta para quedarse con las buenas al entrenar -->
+    <div id="calificar" hidden>
+      <div class="votos">
+        <button type="button" id="voto-bueno" aria-label="Buena respuesta" title="Buena respuesta">👍</button>
+        <button type="button" id="voto-malo" aria-label="Mala respuesta" title="Mala respuesta">👎</button>
+      </div>
+      <form id="corregir" hidden>
+        <input id="mejor" maxlength="500" placeholder="¿Cómo debió responder? (opcional)">
+        <button type="submit">Guardar</button>
+      </form>
+    </div>
 
     <form id="chat">
       <button type="button" id="mic" title="Hablar">🎤</button>
@@ -74,6 +85,23 @@
       <summary>Lo que recuerdo de vos<span id="memoria-cuenta"></span></summary>
       <ul id="recuerdos"></ul>
       <p class="aviso-memoria">Decile «acordate de que…» para sumar algo, o «olvidá…» para sacarlo.</p>
+      <p class="aviso-memoria" id="resumen-votos"></p>
+    </details>
+
+    <!-- Solo en el panel de casa: si Rickuel comenta lo que hacés y por qué pantalla habla -->
+    <details id="observar" hidden>
+      <summary>👁️ Cámara y voz</summary>
+      <label><input id="observa" type="checkbox"> Rickuel observa y comenta lo que hacés</label>
+      <label>Hablar por
+        <select id="salida">
+          <option value="auto">Donde esté (la última pantalla que toqué)</option>
+          <option value="pc">Siempre la PC</option>
+          <option value="panel">Siempre el panel</option>
+          <option value="celu">Siempre el celular</option>
+        </select>
+      </label>
+      <p class="aviso-memoria" id="habla-en"></p>
+      <button type="button" id="probar-salida">Probar: que me hable donde estoy</button>
     </details>
 
     <details id="ajustes">

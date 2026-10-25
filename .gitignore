@@ -6,7 +6,14 @@ panel-luces-celular.zip
 .claude/
 __pycache__/
 lugares.json
+grupos.json
 ajustes*.json
 rickuel.json
 charlas*.jsonl
 memoria*.json
+calificaciones*.json
+entrenamiento*.jsonl
+pc/vigia.json
+pc/bitacora.jsonl
+pc/.venv-vigia/
+pc/.venv-voz/

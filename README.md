@@ -71,6 +71,9 @@ Abrir `http://localhost:8080`.
    python -m tinytuya scan
    ```
    y agregar `"ip"` y `"version"` a cada entrada de `devices.json` (ver `devices.example.json`).
+   Para manejar varias luces juntas (por ejemplo las 3 del living), copiar `grupos.example.json` como `grupos.json`
+   con los nombres de las luces de cada grupo. Cada luz se sigue manejando sola; el grupo entero se prende,
+   apaga o cambia de color con `POST /api/grupos/<nombre>`, y Rickuel lo entiende por su nombre. En el panel cada grupo es una **sala**: las de varias luces tienen su mosaico y su pantalla con cada luz adentro.
 4. Arrancar:
    ```bash
    python server.py
@@ -92,6 +95,14 @@ El cerebro se configura en `rickuel.json` (copialo de `rickuel.example.json`; es
 3. Sin ninguno, Rickuel avisa que no tiene cerebro; los comandos de voz fijos del botón del micrófono siguen andando.
 
 **Memoria:** Rickuel guarda datos duraderos tuyos y de la casa («acordate de que de noche me gusta la luz cálida») en `memoria.json` (en el `.gitignore`) y se los pasa al modelo en cada charla. Se ven y se borran con la ✕ en «Lo que recuerdo de vos», debajo del chat, o diciéndole «olvidá…». Guarda hasta 60 datos de 160 caracteres, y se le pide que no guarde claves ni datos de tarjetas.
+
+**Calificar:** debajo de cada respuesta hay 👍 y 👎. Con 👎 aparece un campo opcional para escribir cómo debió responder. Las notas quedan en `calificaciones.json` (en el `.gitignore`) y `/api/entrenamiento` (el enlace «Bajar para entrenar», debajo del chat) arma el archivo `entrenamiento-rickuel.jsonl` para afinar un modelo propio: entran las 👍 tal cual y las 👎 con tu corrección; las 👎 sin corrección y las que no calificaste quedan afuera.
+
+**Voz de Rick:** si en `rickuel.json` ponés `voz_url` (la PC con `pc/voz_pc.py` corriendo, por ejemplo `http://192.168.0.5:8090`), Rickuel habla con la voz entrenada de Rick en vez de la del navegador. En la PC: `python pc/voz_pc.py --modelo RUTA/es_MX-rick-medium.onnx` (necesita `pip install piper-tts` y el modelo; el `.onnx.json` va al lado). Si la PC está apagada, vuelve a la voz del navegador.
+
+**Rickuel en la PC y dónde habla:** en la PC, doble clic en `pc/rickuel-pc.bat` (antes cambiá la IP por la del celular del panel; conviene reservarla en el router). Abre a Rickuel en el navegador de la PC con su micrófono y sus parlantes: `pc/rickuel_pc.py` hace de puente en `http://localhost:8070`, porque el navegador solo deja usar el micrófono en `localhost` o https. Cuando Rickuel habla por su cuenta (`POST /api/rickuel/aviso {"texto": "[feliz] ..."}`), lo dice en la pantalla que tocaste hace menos de 20 minutos y, si no, en el panel; si es el panel, el inicio abre solo su pantalla. En «Cámara y voz», debajo del chat, se puede fijar la salida (PC, panel o celular), probarla, y prender o apagar «Rickuel observa». El navegador no deja sonar nada hasta que se toca la página una vez.
+
+**Vigía (Rickuel te mira y comenta):** en la PC de escritorio, copiá `pc/vigia.example.json` como `pc/vigia.json` y poné la clave de la cámara (el "safety code" de la etiqueta de la Imou) y la IP del panel. Después, doble clic en `pc/probar-vigia.py` (mira una sola vez y muestra lo que entendió, sin comentar) y, si anda, en `pc/arrancar-vigia.py`. La primera vez instalan `opencv-python` en `pc/.venv-vigia`. Son `.py` y no `.bat` porque el navegador bloquea bajar `.bat`. Cada minuto saca un cuadro, el modelo de Ollama (`gemma3:12b`, que entiende imágenes) lo describe en una frase que va a `pc/bitacora.jsonl` (la imagen no se guarda ni sale de casa) y Rickuel te habla por la pantalla donde estés. Es charlatán: comenta cada ~4 minutos y, si le contestás, sigue la conversación cada ~2 (sabe lo que le dijiste porque el panel le pasa la charla reciente en `/api/rickuel`); cada comentario que ignorás duplica la espera, hasta 40 minutos. Mientras le estás hablando no interrumpe, y de 0 a 8 h no habla. Se ajusta en `vigia.json` (`minutos_entre_comentarios`, `minutos_si_contestas`, `minutos_maximo`, `silencio`). Con «Rickuel observa» apagado no mira.
 
 Cada charla se guarda en `charlas.jsonl` (también en el `.gitignore`) para entrenar más adelante un modelo propio. Con `--demo` y sin `rickuel.json` usa un cerebro de mentira, solo para probar la pantalla.
 

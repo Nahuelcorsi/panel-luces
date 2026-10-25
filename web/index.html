@@ -78,6 +78,66 @@
   .m-luz.on .m-power svg { stroke: #101218; }
   .m-luz.offline { opacity: .45; }
 
+  /* Brillo dentro del mosaico: se llena según el brillo y se cambia arrastrando de costado */
+  .m-luz { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+  .m-luz .relleno { position: absolute; inset: 0 auto 0 0; width: 0; background: color-mix(in srgb, var(--color) 26%, transparent);
+                    transition: width .3s; pointer-events: none; }
+  .m-luz.on .relleno { width: var(--p, 0%); }
+  .m-luz.arrastrando .relleno { transition: none; }
+  .m-luz .gran-pct { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 44px;
+                     font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; opacity: 0; transition: opacity .2s; }
+  .m-luz.arrastrando .gran-pct { opacity: 1; }
+  .m-luz.arrastrando .textos, .m-luz.arrastrando .m-icono { opacity: .15; }
+
+  /* Salas: un mosaico por sala; las de varias luces abren su propia pantalla */
+  .m-sala { grid-column: span 2; }
+  .m-luz .m-icono.emoji { font-size: 24px; }
+  .m-sala.on .m-icono { box-shadow: 0 0 26px color-mix(in srgb, var(--color) 80%, transparent); }
+  .m-sala .puntos { display: flex; gap: 5px; margin-top: 8px; }
+  .m-sala .puntos i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .18); }
+  .m-sala .puntos i.on { background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .mini { min-height: 104px; padding: 14px; }
+  .mini .m-power { width: 44px; height: 44px; top: 10px; right: 10px; }
+  .mini .m-titulo { font-size: 16px; }
+  .luz.sala { justify-content: flex-start; gap: 26px; }
+  .luz.sala .power { width: 128px; height: 128px; }
+  .luz.sala .power svg { width: 48px; height: 48px; }
+  .miembros h2 { margin-top: 4px; }
+
+  /* Combinaciones de colores y efectos de una sala */
+  .combinaciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .combo { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 18px; padding: 10px 8px 9px; font-size: 13.5px;
+           text-align: center; color: var(--suave); transition: all .2s; }
+  .combo .muestra { height: 34px; border-radius: 12px; margin-bottom: 7px; background: var(--g); }
+  .combo.animada .muestra { background-size: 300% 100%; animation: correr 3s linear infinite; }
+  @keyframes correr { to { background-position: 300% 0; } }
+  .combo:active { transform: scale(.96); }
+  .combo.activa { border-color: rgba(255, 255, 255, .8); color: var(--texto); background: rgba(255, 255, 255, .14); }
+  .boton-musica { width: 100%; border: 0; border-radius: 22px; padding: 18px; font-size: 18px; font-weight: 650; text-align: center; color: #fff;
+                  background: linear-gradient(110deg, #ff3c9a, #7a2cff, #1e9bff); box-shadow: 0 8px 30px -8px rgba(122, 44, 255, .7); }
+  .boton-musica:active { transform: scale(.98); }
+
+  /* Modo música: escucha por el micrófono y prende las luces con cada golpe */
+  #musica { position: fixed; z-index: 7; inset: 0; background: #05060a; display: flex; flex-direction: column; align-items: center;
+            justify-content: space-between; padding: calc(30px + env(safe-area-inset-top)) 24px calc(30px + env(safe-area-inset-bottom)); text-align: center; }
+  #musica > * { width: 100%; max-width: 420px; }
+  #musica h1 { margin: 0; font-size: 26px; }
+  #musica .pulso-caja { display: grid; place-items: center; height: 260px; }
+  #musica .pulso { width: 170px; height: 170px; border-radius: 50%; background: var(--c, #7a2cff); transition: transform .08s, background .15s;
+                   box-shadow: 0 0 90px 10px color-mix(in srgb, var(--c, #7a2cff) 60%, transparent); }
+  #musica .nivel { height: 10px; border-radius: 99px; background: var(--vidrio); overflow: hidden; }
+  #musica .nivel i { display: block; height: 100%; width: 0; background: #fff; transition: width .05s; }
+  #musica .estado-m { color: var(--suave); min-height: 22px; }
+  #musica .opciones { justify-content: center; }
+  #musica .parar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 16px; font-size: 17px; text-align: center; }
+
+  /* Resumen de la casa debajo del reloj */
+  .resumen { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
+  .pastilla { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px; font-size: 14px;
+              color: var(--suave); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .pastilla b { color: var(--texto); font-weight: 600; }
+  .pastilla:active { background: rgba(255, 255, 255, .18); }
+
   .m-clima { justify-content: center; gap: 10px; }
   .m-clima .fila { display: flex; align-items: center; gap: 8px; font-size: 15px; }
   .m-clima .fila b { font-size: 24px; font-variant-numeric: tabular-nums; }
@@ -217,9 +277,15 @@
 <div id="sin-servidor" class="oculta">Esperando al servidor del panel… Si recién prendiste el celular, tarda menos de un minuto.</div>
 
 <main id="inicio">
-  <header class="reloj"><div class="hora"></div><div class="fecha"></div></header>
+  <header class="reloj"><div class="hora"></div><div class="fecha"></div>
+    <div class="resumen">
+      <button class="pastilla" id="p-luces">💡 <b>-</b> prendidas</button>
+      <button class="pastilla oculta" id="p-clima">🌡️ <b></b></button>
+      <button class="pastilla oculta" id="p-viaje">🚗 Salir <b></b></button>
+    </div>
+  </header>
+  <section class="bloque"><h2>Salas</h2><div class="grilla" id="grilla-luces"></div></section>
   <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
-  <section class="bloque"><h2>Luces</h2><div class="grilla" id="grilla-luces"></div></section>
   <section class="bloque"><h2>Rutinas</h2>
     <div class="grilla">
       <div class="mosaico m-rutina" id="m-despertador">
@@ -267,8 +333,20 @@
   <div class="onda"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></div>
   <div class="oido"></div>
   <div class="respuesta"></div>
-  <div class="ayuda">Probá: "prendé la lámpara" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
+  <div class="ayuda">Probá: "prendé el living" · "apagá la cocina" · "apagá todo" · "escena cine" · "brillo al 50" · "luz azul" ·
     "¿a qué hora salgo?" · "¿cómo está el clima?" · "despertador a las 6 y media" · "modo noche"</div>
+</div>
+
+<div id="musica" class="oculta">
+  <div><h1>Modo música</h1><div class="estado-m">Pidiendo el micrófono…</div></div>
+  <div class="pulso-caja"><div class="pulso"></div></div>
+  <div style="display:flex; flex-direction:column; gap:16px">
+    <div class="nivel"><i></i></div>
+    <div class="opciones modos"></div>
+    <div><div class="fila-titulo"><span>Sensibilidad</span><span class="sens-txt"></span></div>
+      <input class="tono sens" type="range" min="1" max="10" value="5" style="background:linear-gradient(to right,#2a2f3d,#fff)"></div>
+    <button class="parar">Parar</button>
+  </div>
 </div>
 
 <div id="noche" class="oculta">
@@ -317,16 +395,18 @@ function hueAHex(h) {
 }
 
 // ---- envío (agrupa y limita la frecuencia mientras deslizás) ----
+// `id` es una luz o una sala: a una sala se le manda una sola orden y el servidor cambia todas sus luces a la vez.
 function enviar(id, cambios, ya) {
-  tocado[id] = Date.now();
+  const sala = salas[id];
+  for (const x of sala ? sala.luces : [id]) tocado[x] = Date.now();
   pendiente[id] = Object.assign(pendiente[id] || {}, cambios);
   if (temporizador[id] && !ya) return;
   const mandar = async () => {
     const lote = pendiente[id]; pendiente[id] = null; temporizador[id] = null;
     if (!lote) return;
     try {
-      const r = await fetch('/api/luces/' + id, { method: 'POST', body: JSON.stringify(lote) });
-      if (r.ok && !tocadoReciente(id)) pintar(await r.json());
+      const r = await fetch(sala ? '/api/grupos/' + encodeURIComponent(id) : '/api/luces/' + id, { method: 'POST', body: JSON.stringify(lote) });
+      if (r.ok && !sala && !tocadoReciente(id)) pintar(await r.json());
     } catch (e) {}
   };
   if (ya) { clearTimeout(temporizador[id]); return mandar(); }
@@ -334,27 +414,42 @@ function enviar(id, cambios, ya) {
 }
 const tocadoReciente = id => Date.now() - (tocado[id] || 0) < 2500;
 
-// ---- navegación: inicio <-> detalle ----
+// ---- navegación: inicio <-> detalle (una luz se puede abrir desde la pantalla de su sala) ----
 let abierta = null;
+const pila = [];   // pantallas abiertas antes de la actual, para que "atrás" vuelva a la sala
 if (history.state) history.replaceState(null, '');   // al recargar se arranca siempre en el inicio
-function abrir(s) {
+function mostrar(s) {
   detalle.querySelectorAll('.luz.activa').forEach(x => x.classList.remove('activa'));
   s.classList.add('activa');
   abierta = s;
   detalle.classList.remove('oculta');
   inicio.classList.add('oculta');
   document.body.classList.toggle('en-rickuel', s.classList.contains('rickuel'));
-  if (!history.state) history.pushState({ detalle: true }, '');
+  const anterior = pila[pila.length - 1];
+  document.getElementById('volver').lastChild.textContent = anterior ? anterior.querySelector('.nombre').textContent : 'Inicio';
   pintarAmbiente();
 }
-function cerrar() {
+function abrir(s) {
+  if (abierta) pila.push(abierta);
+  history.pushState({ detalle: true }, '');
+  mostrar(s);
+}
+function cerrar() {   // vuelve una pantalla
   if (!abierta) return;
   abierta.classList.remove('activa');
+  const anterior = pila.pop();
+  if (anterior) return mostrar(anterior);
   abierta = null;
   document.body.classList.remove('en-rickuel');
   detalle.classList.add('oculta');
   inicio.classList.remove('oculta');
   pintarAmbiente();
+}
+function irAlInicio() {
+  if (!abierta) return;
+  const pasos = pila.length + 1;
+  pila.length = 0;
+  history.state ? history.go(-pasos) : cerrar();
 }
 document.getElementById('volver').onclick = () => history.state ? history.back() : cerrar();
 addEventListener('popstate', cerrar);   // botón "atrás" de Android
@@ -411,30 +506,67 @@ function crear(l) {
   });
   detalle.appendChild(s);
 
-  // Mosaico en el inicio: tocarlo abre la luz, el botón de la esquina la prende o apaga
-  const m = document.createElement('div');
-  m.className = 'mosaico m-luz';
-  m.innerHTML = `<button class="abrir" aria-label="Abrir ${l.nombre}"></button>
-    <div class="m-icono">${FOCO}</div>
-    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
-    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
-  m.querySelector('.m-titulo').textContent = l.nombre;
-  m.querySelector('.abrir').onclick = () => abrir(s);
-  m.querySelector('.m-power').onclick = alternar;
-  grillaLuces.appendChild(m);
+  // Mosaico: tocarlo abre la luz, el botón de la esquina la prende o apaga y arrastrar de costado cambia el brillo.
+  // Va en el inicio o, si la luz es de una sala con varias, en la pantalla de esa sala (ver ubicarMosaicos).
+  const m = mosaico(l.nombre, FOCO, () => abrir(s), alternar);
+  arrastrarBrillo(m, l.id, () => +brillo.value, v => { reflejar(s, { encendida: true, brillo: v }); });
   mosaicos[l.id] = m;
-
-  // Chip para elegir si esta luz entra en las escenas
-  const chip = document.createElement('button');
-  chip.className = 'chip';
-  chip.innerHTML = '<i></i><span></span>';
-  chip.querySelector('span').textContent = l.nombre;
-  chip.dataset.id = l.id;
-  chip.onclick = () => { fueraDeEscenas[l.id] = !fueraDeEscenas[l.id]; guardarSelector(); pintarSelector(); };
-  document.getElementById('selector').appendChild(chip);
-  pintarSelector();
+  ubicarMosaicos();
   pintarRutinas();   // para que la luz nueva aparezca en el despertador y el modo trabajo
   return s;
+}
+
+function mosaico(nombre, icono, alAbrir, alPrender) {
+  const m = document.createElement('div');
+  m.className = 'mosaico m-luz';
+  m.innerHTML = `<div class="relleno"></div><button class="abrir"></button>
+    <div class="m-icono">${icono}</div>
+    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
+    <div class="gran-pct"></div>
+    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
+  m.querySelector('.m-titulo').textContent = nombre;
+  m.querySelector('.abrir').setAttribute('aria-label', 'Abrir ' + nombre);
+  m.querySelector('.abrir').onclick = () => { if (!m.recienArrastrado) alAbrir(); };
+  m.querySelector('.m-power').onclick = () => { if (!m.recienArrastrado) alPrender(); };
+  return m;
+}
+
+// Arrastrar de costado sobre un mosaico cambia el brillo (como las tarjetas de Home Assistant); de arriba a abajo sigue desplazando.
+function arrastrarBrillo(m, id, brilloActual, alCambiar) {
+  let x0, y0, base, decidido = false, activo = false;
+  m.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; base = brilloActual(); decidido = activo = false; });
+  m.addEventListener('pointermove', e => {
+    if (x0 == null || (decidido && !activo)) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (!decidido) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      decidido = true;
+      activo = Math.abs(dx) > Math.abs(dy) && !m.classList.contains('offline');
+      if (!activo) return;
+      m.setPointerCapture(e.pointerId);
+      m.classList.add('arrastrando');
+    }
+    const v = Math.max(1, Math.min(100, Math.round(base + dx / m.offsetWidth * 100)));
+    m.querySelector('.gran-pct').textContent = v + '%';
+    alCambiar(v);
+    enviar(id, { encendida: true, brillo: v });
+  });
+  const soltar = () => {
+    if (activo) { m.recienArrastrado = true; setTimeout(() => m.recienArrastrado = false, 350); }
+    m.classList.remove('arrastrando');
+    x0 = null; activo = false;
+  };
+  m.addEventListener('pointerup', soltar);
+  m.addEventListener('pointercancel', soltar);
+}
+
+// Refleja en la pantalla un cambio que se está mandando, sin esperar a la luz
+function reflejar(s, cambios) {
+  if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
+  if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
+  if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
+  if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
+  textoEstado(s);
 }
 
 function textoEstado(s) {
@@ -457,7 +589,9 @@ function pintarMosaico(s) {
   m.classList.toggle('on', on && !off);
   m.classList.toggle('offline', off);
   m.style.setProperty('--color', s.style.getPropertyValue('--color') || '#ffb347');
+  m.style.setProperty('--p', s.querySelector('.brillo').value + '%');
   m.querySelector('.m-sub').textContent = off ? 'Sin conexión' : on ? `Prendida · ${s.querySelector('.brillo').value}%` : 'Apagada';
+  pintarSalas();
 }
 
 function pintar(l) {
@@ -481,18 +615,325 @@ async function refrescar() {
     aviso.classList.add('oculta');
   } catch (e) { aviso.classList.remove('oculta'); }
 }
-refrescar();
+
+// ---- salas: luces que se manejan juntas (grupos.json del servidor) ----
+// Las de varias luces tienen mosaico y pantalla propia, con sus luces adentro para manejarlas por separado.
+// Las de una sola luz y las luces que no están en ninguna sala se muestran como una luz común en el inicio.
+const salas = {};   // id -> { nombre, luces, mosaico, pantalla }
+const ICONOS_SALA = [['living', '🛋️'], ['comedor', '🍽️'], ['cocina', '🍳'], ['habitacion', '🛏️'], ['dormitorio', '🛏️'],
+  ['bano', '🛁'], ['patio', '🌳'], ['jardin', '🌳'], ['oficina', '💻'], ['escritorio', '💻']];
+const iconoSala = n => (ICONOS_SALA.find(([c]) => sinTildes(n).includes(c)) || [, '💡'])[1];
+const salaGrande = s => s.luces.length > 1;
+const salaDe = id => Object.values(salas).find(s => salaGrande(s) && s.luces.includes(id));
+
+async function cargarSalas() {
+  let lista = [];
+  try { lista = await (await fetch('/api/salas')).json(); } catch (e) { return; }
+  for (const { id, nombre, luces } of lista) {
+    if (salas[id]) continue;
+    const sala = salas[id] = { nombre, luces };
+    if (!salaGrande(sala)) continue;
+    const p = sala.pantalla = document.createElement('section');
+    p.className = 'luz sala';
+    p.innerHTML = `
+      <div class="cabecera"><h1 class="nombre"></h1><div class="estado"></div></div>
+      <div class="centro"><button class="power" aria-label="Encender o apagar la sala">${ICONO}</button></div>
+      <div class="controles">
+        <div><div class="fila-titulo"><span>Brillo de toda la sala</span><span class="pct"></span></div>
+          <input class="brillo" type="range" min="1" max="100"></div>
+        <div><div class="fila-titulo"><span>Color</span></div><input class="tono" type="range" min="0" max="359"></div>
+        <div class="blancos">${PRESETS.map(x => `<button class="blanco" data-t="${x[1]}"><i style="background:${x[2]}"></i>${x[0]}</button>`).join('')}</div>
+      </div>
+      <div><h2>Combinaciones</h2><div class="combinaciones fijas"></div></div>
+      <div><h2>Animadas</h2><div class="combinaciones animadas"></div></div>
+      <button class="boton-musica">🎵 Modo música</button>
+      <div class="miembros"><h2>Cada luz</h2><div class="grilla"></div></div>`;
+    p.querySelector('.nombre').textContent = nombre;
+    armarCombinaciones(id, sala, p);
+    const miembros = () => sala.luces.map(x => tarjetas[x]).filter(x => x && !x.classList.contains('offline'));
+    const aplicar = (cambios, ya) => { miembros().forEach(x => reflejar(x, cambios)); enviar(id, cambios, ya); };
+    const alternar = () => aplicar({ encendida: !sala.on }, true);
+    p.querySelector('.power').onclick = alternar;
+    const brillo = p.querySelector('.brillo');
+    brillo.oninput = () => aplicar({ encendida: true, brillo: +brillo.value });
+    p.querySelector('.tono').oninput = e => aplicar({ encendida: true, color: hueAHex(+e.target.value) });
+    p.querySelectorAll('.blanco').forEach(b => b.onclick = () => aplicar({ encendida: true, blanco: +b.dataset.t, brillo: +brillo.value }, true));
+    detalle.appendChild(p);
+
+    const m = sala.mosaico = mosaico(nombre, iconoSala(nombre), () => abrir(p), alternar);
+    m.classList.add('m-sala');
+    m.querySelector('.m-icono').classList.add('emoji');
+    m.querySelector('.textos').insertAdjacentHTML('beforeend', '<div class="puntos"></div>');
+    arrastrarBrillo(m, id, () => sala.brillo || 100, v => miembros().forEach(x => reflejar(x, { encendida: true, brillo: v })));
+  }
+  ubicarMosaicos();
+  pintarSalas();
+}
+
+// ---- combinaciones: un color distinto en cada luz de la sala ----
+const COMBINACIONES = [
+  ['Atardecer', ['#ff5e1a', '#ff2d6f', '#8a3cff']],
+  ['Océano', ['#00c8ff', '#0040ff', '#00ffb0']],
+  ['Fuego', ['#ff1e00', '#ff6a00', '#ffb400']],
+  ['Galaxia', ['#6a00ff', '#ff00c8', '#1e4bff']],
+  ['Bosque', ['#00ff40', '#a8ff00', '#00b46e']],
+  ['Caramelo', ['#ff3c9a', '#3cc8ff', '#ffd000']],
+];
+const ANIMADAS = [['fiesta', 'Fiesta', '#ff3c9a,#ffd000,#00ff40,#3cc8ff,#7a2cff,#ff3c9a'],
+  ['arcoiris', 'Arcoíris', '#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00'], ['ola', 'Ola', '#111,#3cc8ff,#111,#111'],
+  ['fuego', 'Fogata', '#ff1e00,#ff8a00,#ff3c00,#ffb400,#ff1e00'], ['respirar', 'Respirar', '#2a0a5e,#b07cff,#2a0a5e']];
+let efectosActivos = {};
+
+function armarCombinaciones(id, sala, p) {
+  const fijas = p.querySelector('.fijas'), animadas = p.querySelector('.animadas');
+  for (const [nombre, colores] of COMBINACIONES) {
+    const b = document.createElement('button');
+    b.className = 'combo';
+    b.style.setProperty('--g', `linear-gradient(90deg, ${colores.join(', ')})`);
+    b.innerHTML = `<div class="muestra"></div>${nombre}`;
+    b.onclick = () => {
+      const brillo = sala.brillo || 100;
+      sala.luces.filter(x => tarjetas[x] && !tarjetas[x].classList.contains('offline')).forEach((x, i) => {
+        const c = { encendida: true, color: colores[i % colores.length], brillo };
+        reflejar(tarjetas[x], c);
+        enviar(x, c, true);
+      });
+      delete efectosActivos[id];
+      pintarEfectos();
+    };
+    fijas.appendChild(b);
+  }
+  for (const [clave, nombre, colores] of ANIMADAS) {
+    const b = document.createElement('button');
+    b.className = 'combo animada';
+    b.dataset.efecto = clave;
+    b.style.setProperty('--g', `linear-gradient(90deg, ${colores})`);
+    b.innerHTML = `<div class="muestra"></div>${nombre}`;
+    b.onclick = async () => {
+      const prender = efectosActivos[id] !== clave;   // tocar la que está andando la apaga
+      try { efectosActivos = await (await fetch('/api/efecto', { method: 'POST', body: JSON.stringify({ sala: id, efecto: prender ? clave : null }) })).json(); } catch (e) {}
+      pintarEfectos();
+    };
+    animadas.appendChild(b);
+  }
+  p.querySelector('.boton-musica').onclick = () => empezarMusica(id);
+}
+function pintarEfectos() {
+  for (const [id, s] of Object.entries(salas)) {
+    if (!s.pantalla) continue;
+    s.pantalla.querySelectorAll('.animada').forEach(b => b.classList.toggle('activa', efectosActivos[id] === b.dataset.efecto));
+    if (s.mosaico) {
+      const ef = ANIMADAS.find(a => a[0] === efectosActivos[id]);
+      if (ef) s.mosaico.querySelector('.m-sub').textContent = '✨ ' + ef[1];
+    }
+  }
+}
+async function refrescarEfectos() {
+  try { efectosActivos = await (await fetch('/api/efectos')).json(); } catch (e) {}
+  pintarEfectos();
+}
+
+// ---- modo música: el micrófono del celular escucha y cada golpe de bajo cambia las luces ----
+// Las lamparitas aguantan unos 3 o 4 cambios por segundo, así que se reacciona a los golpes y no a cada sonido.
+const MODOS_MUSICA = [['techno', 'De a una'], ['cadena', 'Cadena'], ['todas', 'Todas juntas'], ['arcoiris', 'Arcoíris']];
+const musicaPantalla = document.getElementById('musica');
+const mus = { modo: 'cadena', sens: 5 };
+try { Object.assign(mus, JSON.parse(localStorage.getItem('musica')) || {}); } catch (e) {}
+
+async function empezarMusica(salaId) {
+  const ids = salas[salaId].luces.filter(x => tarjetas[x] && !tarjetas[x].classList.contains('offline'));
+  const estado = musicaPantalla.querySelector('.estado-m');
+  musicaPantalla.classList.remove('oculta');
+  pintarModosMusica();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    estado.textContent = 'El micrófono solo funciona en la pantalla del celular del panel.';
+    return;
+  }
+  estado.textContent = 'Pidiendo el micrófono…';
+  try {
+    mus.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    estado.textContent = 'No tengo permiso para el micrófono. Habilitalo en los permisos de Chrome y probá de nuevo.';
+    return;
+  }
+  estado.textContent = 'Escuchando… poné música fuerte cerca del celular';
+  mus.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const fuente = mus.ctx.createMediaStreamSource(mus.stream);
+  const an = mus.ctx.createAnalyser();
+  an.fftSize = 1024;
+  an.smoothingTimeConstant = .2;
+  fuente.connect(an);
+  const datos = new Uint8Array(an.frequencyBinCount);
+  const hastaBajo = Math.max(2, Math.round(150 / (mus.ctx.sampleRate / an.fftSize)));   // hasta 150 Hz: bombo y bajo
+  Object.assign(mus, { ids, activo: true, prom: 0, ultimo: 0, paso: 0, hue: Math.random() });
+  const pulso = musicaPantalla.querySelector('.pulso'), nivel = musicaPantalla.querySelector('.nivel i');
+  const vuelta = () => {
+    if (!mus.activo) return;
+    an.getByteFrequencyData(datos);
+    let bajo = 0, todo = 0;
+    for (let i = 1; i <= hastaBajo; i++) bajo += datos[i];
+    for (let i = 0; i < datos.length; i++) todo += datos[i];
+    bajo /= hastaBajo;
+    todo /= datos.length;
+    mus.prom = mus.prom ? mus.prom * .94 + bajo * .06 : bajo;
+    nivel.style.width = Math.min(100, todo / 1.2) + '%';
+    const umbral = 1.6 - mus.sens * .08, ahora = performance.now();   // sensibilidad 1 = solo golpes fuertes, 10 = casi todo
+    // En "De a una" se espacian más los cambios: las lamparitas tardan en apagarse y si no se pisan
+    if (bajo > mus.prom * umbral && bajo > 40 && ahora - mus.ultimo > (mus.modo === 'techno' ? 620 : 260)) {
+      mus.ultimo = ahora;
+      golpe(Math.min(1, (bajo / Math.max(mus.prom, 1) - 1) * 2));
+      pulso.style.transform = 'scale(1.25)';
+      setTimeout(() => pulso.style.transform = '', 120);
+    }
+    ultimoToque = Date.now();   // que no vuelva al inicio ni pase al modo noche mientras suena
+    requestAnimationFrame(vuelta);
+  };
+  vuelta();
+}
+
+function golpe(fuerza) {
+  const ids = mus.ids, n = ids.length, envio = {};
+  if (!n) return;
+  const brillo = Math.round(55 + 45 * fuerza);
+  if (mus.modo === 'techno') {   // una sola luz prendida por golpe y las demás apagadas, como en un boliche
+    const actual = mus.paso % n, color = TECHNO[mus.paso % TECHNO.length];
+    // A las apagadas se les repite la orden en cada golpe, por si alguna se perdió
+    ids.forEach((x, i) => envio[x] = i === actual ? { color, brillo: 70 } : { color: '#000000', brillo: 0 });
+    musicaPantalla.querySelector('.pulso').style.setProperty('--c', color);
+    // Destello: la que se prendió se apaga enseguida, así cuando llega el próximo golpe ya está oscura
+    // (las lamparitas tardan en apagarse del todo, y si se espera al golpe siguiente quedan dos prendidas)
+    clearTimeout(mus.destello);
+    mus.destello = setTimeout(() => {
+      fetch('/api/musica', { method: 'POST', body: JSON.stringify({ [ids[actual]]: { color: '#000000', brillo: 0 } }) }).catch(() => {});
+      reflejar(tarjetas[ids[actual]], { encendida: false });
+    }, 120);
+  } else if (mus.modo === 'cadena') {   // una luz por golpe, recorriendo la sala; la anterior queda tenue
+    const actual = mus.paso % n, antes = (mus.paso + n - 1) % n;
+    mus.hue += .09;
+    envio[ids[actual]] = { color: hsvAHex(mus.hue), brillo };
+    if (n > 1) envio[ids[antes]] = { color: hsvAHex(mus.hue - .09), brillo: 12 };
+  } else if (mus.modo === 'todas') {   // todas del mismo color, salta en cada golpe
+    mus.hue += .17 + Math.random() * .15;
+    ids.forEach(x => envio[x] = { color: hsvAHex(mus.hue), brillo });
+  } else {   // arcoíris repartido que gira con cada golpe
+    mus.hue += .07;
+    ids.forEach((x, i) => envio[x] = { color: hsvAHex(mus.hue + i / n), brillo });
+  }
+  if (mus.modo !== 'techno') musicaPantalla.querySelector('.pulso').style.setProperty('--c', hsvAHex(mus.hue));
+  mus.paso++;
+  for (const [x, c] of Object.entries(envio)) reflejar(tarjetas[x], c.brillo ? { encendida: true, color: c.color, brillo: c.brillo } : { encendida: false });
+  fetch('/api/musica', { method: 'POST', body: JSON.stringify(envio) }).catch(() => {});
+}
+// Colores oscuros y saturados para "De a una": nada de blancos, amarillos ni celestes claros
+const TECHNO = ['#ff0000', '#2a00ff', '#ff0050', '#7000ff', '#ff1800', '#0030ff', '#c000ff', '#ff0020'];
+const hsvAHex = h => hueAHex(Math.round((((h % 1) + 1) % 1) * 359));
+
+function pararMusica() {
+  mus.activo = false;
+  if (mus.stream) mus.stream.getTracks().forEach(t => t.stop());
+  if (mus.ctx) mus.ctx.close().catch(() => {});
+  mus.stream = mus.ctx = null;
+  musicaPantalla.classList.add('oculta');
+}
+function pintarModosMusica() {
+  chipsOpcion(musicaPantalla.querySelector('.modos'), MODOS_MUSICA, [mus.modo], m => { mus.modo = m; guardarMusica(); pintarModosMusica(); });
+  const s = musicaPantalla.querySelector('.sens');
+  s.value = mus.sens;
+  musicaPantalla.querySelector('.sens-txt').textContent = mus.sens;
+}
+function guardarMusica() { try { localStorage.setItem('musica', JSON.stringify({ modo: mus.modo, sens: mus.sens })); } catch (e) {} }
+musicaPantalla.querySelector('.sens').oninput = e => { mus.sens = +e.target.value; guardarMusica(); pintarModosMusica(); };
+musicaPantalla.querySelector('.parar').onclick = pararMusica;
+
+function ubicarMosaicos() {
+  // Primero las salas grandes, después las luces sueltas, en el orden de devices.json
+  for (const s of Object.values(salas)) if (s.mosaico) grillaLuces.appendChild(s.mosaico);
+  const enSala = id => Object.values(salas).some(s => s.luces.includes(id));
+  for (const [id, m] of Object.entries(mosaicos).sort((a, b) => enSala(b[0]) - enSala(a[0])
+      || nombreLuz(a[0]).localeCompare(nombreLuz(b[0]), 'es', { numeric: true }))) {
+    const sala = salaDe(id);
+    m.classList.toggle('mini', !!sala);
+    (sala ? sala.pantalla.querySelector('.miembros .grilla') : grillaLuces).appendChild(m);
+    // Una luz que es una sala sola (la cocina) lleva el ícono de la sala
+    const sola = Object.values(salas).find(s => !salaGrande(s) && s.luces[0] === id);
+    if (sola && !m.querySelector('.m-icono.emoji')) {
+      m.querySelector('.m-icono').classList.add('emoji');
+      m.querySelector('.m-icono').textContent = iconoSala(sola.nombre);
+    }
+  }
+  pintarSelector();
+}
+
+function pintarSalas() {
+  let prendidas = 0;
+  for (const s of Object.values(tarjetas)) if (s.classList.contains('on') && !s.classList.contains('offline')) prendidas++;
+  const pl = document.getElementById('p-luces');
+  pl.querySelector('b').textContent = prendidas;
+  pl.lastChild.textContent = prendidas === 1 ? ' prendida' : ' prendidas';
+  for (const sala of Object.values(salas)) {
+    if (!sala.mosaico) continue;
+    const ls = sala.luces.map(x => tarjetas[x]).filter(Boolean);
+    const vivas = ls.filter(x => !x.classList.contains('offline')), on = vivas.filter(x => x.classList.contains('on'));
+    sala.on = on.length > 0;
+    sala.brillo = on.length ? Math.round(on.reduce((t, x) => t + +x.querySelector('.brillo').value, 0) / on.length) : null;
+    const color = on.length ? on[0].style.getPropertyValue('--color') : '#ffb347';
+    const texto = !vivas.length ? 'Sin conexión' : !on.length ? (ls.length > 1 ? 'Apagadas' : 'Apagada')
+      : on.length === ls.length ? `${ls.length > 1 ? 'Todas prendidas' : 'Prendida'} · ${sala.brillo}%` : `${on.length} de ${ls.length} prendidas · ${sala.brillo}%`;
+    const m = sala.mosaico, p = sala.pantalla;
+    m.classList.toggle('on', sala.on);
+    m.classList.toggle('offline', !vivas.length);
+    m.style.setProperty('--color', color);
+    m.style.setProperty('--p', (sala.brillo || 0) + '%');
+    m.querySelector('.m-sub').textContent = texto;
+    m.querySelector('.puntos').innerHTML = ls.map(x => x.classList.contains('on') && !x.classList.contains('offline')
+      ? `<i class="on" style="--c:${x.style.getPropertyValue('--color')}"></i>` : '<i></i>').join('');
+    p.classList.toggle('on', sala.on);
+    p.classList.toggle('offline', !vivas.length);
+    p.style.setProperty('--color', color);
+    p.querySelector('.estado').textContent = texto;
+    if (sala.brillo && document.activeElement !== p.querySelector('.brillo')) {
+      p.querySelector('.brillo').value = sala.brillo;
+      p.querySelector('.brillo').style.setProperty('--p', sala.brillo + '%');
+      p.querySelector('.pct').textContent = sala.brillo + '%';
+    }
+    if (p === abierta) pintarAmbiente();
+  }
+  pintarEfectos();
+}
+document.getElementById('p-luces').onclick = () => grillaLuces.scrollIntoView({ behavior: 'smooth' });
+
+cargarSalas().then(refrescar);
 setInterval(refrescar, 4000);
+refrescarEfectos();
+setInterval(refrescarEfectos, 10000);
+setInterval(cargarSalas, 60000);   // por si se reinició el servidor con salas nuevas
 
 // ---- escenas ----
 // Se guardan las luces que NO entran en las escenas, así una luz nueva entra sola
 let fueraDeEscenas = {};
 try { fueraDeEscenas = JSON.parse(localStorage.getItem('fuera-de-escenas')) || {}; } catch (e) {}
 function guardarSelector() { try { localStorage.setItem('fuera-de-escenas', JSON.stringify(fueraDeEscenas)); } catch (e) {} }
+// Un chip por sala grande y uno por cada luz suelta; el de una sala la saca o la pone entera
 function pintarSelector() {
+  const cont = document.getElementById('selector');
+  const grupos = [...Object.values(salas).filter(salaGrande).map(s => [s.nombre, s.luces.filter(x => tarjetas[x])]),
+                  ...Object.keys(tarjetas).filter(id => !salaDe(id)).map(id => [nombreLuz(id), [id]])];
+  if (cont.dataset.armado !== grupos.map(g => g[1].join()).join('|')) {
+    cont.dataset.armado = grupos.map(g => g[1].join()).join('|');
+    cont.innerHTML = '';
+    for (const [nombre, ids] of grupos) {
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.innerHTML = '<i></i><span></span>';
+      chip.querySelector('span').textContent = nombre;
+      chip.dataset.ids = ids.join();
+      chip.onclick = () => { const fuera = !fueraDeEscenas[ids[0]]; ids.forEach(x => fueraDeEscenas[x] = fuera); guardarSelector(); pintarSelector(); };
+      cont.appendChild(chip);
+    }
+  }
   let alguna = false;
-  document.querySelectorAll('#selector .chip').forEach(c => {
-    const sel = !fueraDeEscenas[c.dataset.id];
+  cont.querySelectorAll('.chip').forEach(c => {
+    const sel = !fueraDeEscenas[c.dataset.ids.split(',')[0]];
     c.classList.toggle('sel', sel);
     c.querySelector('i').textContent = sel ? '✓' : '';
     alguna = alguna || sel;
@@ -502,11 +943,7 @@ function pintarSelector() {
 function aplicarEscena(cambios) {
   for (const s of Object.values(tarjetas)) {
     if (s.classList.contains('offline') || fueraDeEscenas[s.dataset.id]) continue;
-    s.classList.toggle('on', cambios.encendida);          // respuesta inmediata en la pantalla
-    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
-    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
-    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
-    textoEstado(s);
+    reflejar(s, cambios);   // respuesta inmediata en la pantalla
     enviar(s.dataset.id, cambios, true);
   }
 }
@@ -571,6 +1008,9 @@ function pintarViaje() {
   $('.aviso').textContent = 'Con el tráfico en vivo de TomTom';
   mv.querySelector('.m-grande').textContent = hora(salida);
   mv.querySelector('.m-sub').textContent = faltan >= 0 && faltan <= 90 ? sub : `Salir ${cuando} · ${v.minutos} min`;
+  const pv = document.getElementById('p-viaje');
+  pv.classList.remove('oculta');
+  pv.querySelector('b').textContent = (cuando === 'hoy' ? '' : cuando + ' ') + hora(salida);
   document.querySelector('#noche .salida').textContent = `Salir ${cuando} a las ${hora(salida)}`;
 }
 async function refrescarViaje() {
@@ -587,7 +1027,7 @@ rickuel.className = 'luz rickuel';
 rickuel.dataset.ambiente = '#1b3a22';
 rickuel.innerHTML = '<iframe title="Rickuel" allow="microphone; autoplay"></iframe>';
 detalle.appendChild(rickuel);
-document.getElementById('m-rickuel').onclick = () => {
+function abrirRickuel() {
   const marco = rickuel.querySelector('iframe');
   if (!marco.getAttribute('src')) {
     marco.src = '/rickuel/?panel';
@@ -596,8 +1036,31 @@ document.getElementById('m-rickuel').onclick = () => {
       try { for (const ev of ['pointerdown', 'keydown']) marco.contentWindow.addEventListener(ev, () => { ultimoToque = Date.now(); }, true); } catch (e) {}
     };
   }
-  abrir(rickuel);
-};
+  if (abierta !== rickuel) abrir(rickuel);
+}
+document.getElementById('m-rickuel').onclick = abrirRickuel;
+
+// Rickuel también habla sin que le pregunten (ver /api/rickuel/aviso en server.py) y lo hace por la pantalla que
+// estás usando. Esta página cuenta como pantalla abierta y, si hay algo para decir acá, abre a Rickuel.
+const pantallaRickuel = (() => {
+  const pedida = new URLSearchParams(location.search).get('pantalla');
+  if (['panel', 'pc', 'celu'].includes(pedida)) { try { localStorage.setItem('pantalla', pedida); } catch (e) {} return pedida; }
+  try { const g = localStorage.getItem('pantalla'); if (['panel', 'pc', 'celu'].includes(g)) return g; } catch (e) {}
+  return ['localhost', '127.0.0.1'].includes(location.hostname) ? 'panel' : 'celu';
+})();
+async function revisarRickuel() {
+  try {
+    const e = await (await fetch(`/api/rickuel?pantalla=${pantallaRickuel}`)).json();
+    if (e.pendientes?.[pantallaRickuel] && abierta !== rickuel) { ultimoToque = Date.now(); abrirRickuel(); }
+  } catch (e) {}
+}
+setInterval(revisarRickuel, 4000);
+let presenciaRickuel = 0;
+addEventListener('pointerdown', () => {
+  if (Date.now() - presenciaRickuel < 20000) return;
+  presenciaRickuel = Date.now();
+  fetch('/api/rickuel/presencia', { method: 'POST', body: JSON.stringify({ pantalla: pantallaRickuel }) }).catch(() => {});
+}, true);
 
 // ---- ventana: clima en casa y en el trabajo ----
 const clima = document.createElement('section');
@@ -607,6 +1070,8 @@ clima.innerHTML = `<div class="cabecera"><h1 class="nombre">Clima</h1></div>
   <div class="lugar" data-l="casa"></div><div class="lugar" data-l="trabajo"></div>`;
 detalle.appendChild(clima);
 document.getElementById('m-clima').onclick = () => abrir(clima);
+document.getElementById('p-clima').onclick = () => abrir(clima);
+document.getElementById('p-viaje').onclick = () => abrir(viaje);
 
 // Códigos del tiempo de Open-Meteo (WMO): [códigos, descripción, ícono de día, ícono de noche]
 const TIEMPO = [[[0], 'Despejado', '☀️', '🌙'], [[1], 'Mayormente despejado', '🌤️', '🌙'], [[2], 'Parcialmente nublado', '⛅', '☁️'],
@@ -639,6 +1104,12 @@ async function refrescarClima() {
       <div class="extra"><span>Sensación ${grados(c.sensacion)}</span><span>Lluvia próx. 3 h ${c.lluvia_3h}%</span><span>Próx. 12 h ${c.lluvia_12h}%</span>
         <span>Humedad ${c.humedad}%</span><span>Viento ${Math.round(c.viento)} km/h</span></div>`;
     filas.push(`<div class="fila"><span>${icono}</span><b>${grados(c.temp)}</b><span>${c.nombre}</span></div>`);
+    if (clave === 'casa') {
+      const pc = document.getElementById('p-clima');
+      pc.classList.remove('oculta');
+      pc.firstChild.textContent = icono + ' ';
+      pc.querySelector('b').textContent = grados(c.temp);
+    }
   }
   const mc = document.getElementById('m-clima');
   mc.querySelector('.filas').innerHTML = filas.join('');
@@ -839,22 +1310,26 @@ function horaDicha(t) {
 }
 
 function lucesNombradas(t) {
+  // "living 1" es esa luz; "living" solo es toda la sala
   const ids = Object.keys(tarjetas).filter(id => t.includes(sinTildes(nombreLuz(id))));
+  for (const s of Object.values(salas)) {
+    if (t.includes(sinTildes(s.nombre)) && !s.luces.some(x => ids.includes(x))) ids.push(...s.luces.filter(x => tarjetas[x]));
+  }
   return ids.length ? ids : Object.keys(tarjetas);
 }
 function cambiarLuces(ids, cambios) {
   for (const id of ids) {
     const s = tarjetas[id];
     if (!s || s.classList.contains('offline')) continue;
-    if ('encendida' in cambios) s.classList.toggle('on', cambios.encendida);
-    if (cambios.color) { fijarColor(s, cambios.color); s.querySelector('.tono').value = hexAHue(cambios.color); }
-    if ('blanco' in cambios) fijarColor(s, PRESETS.find(p => p[1] === cambios.blanco)[2]);
-    if (cambios.brillo) { s.querySelector('.brillo').value = cambios.brillo; marcarBrillo(s, cambios.brillo); }
-    textoEstado(s);
+    reflejar(s, cambios);
     enviar(id, cambios, true);
   }
 }
-const quienes = ids => ids.length === Object.keys(tarjetas).length ? (ids.length > 1 ? 'las luces' : 'la luz') : ids.map(nombreLuz).join(' y ');
+function quienes(ids) {
+  if (ids.length === Object.keys(tarjetas).length) return ids.length > 1 ? 'las luces' : 'la luz';
+  const sala = Object.values(salas).find(s => salaGrande(s) && s.luces.length === ids.length && s.luces.every(x => ids.includes(x)));
+  return sala ? 'el ' + sala.nombre.toLowerCase() : ids.map(nombreLuz).join(' y ');
+}
 const esApagar = t => /\b(apag|desactiv|sac|cancel)/.test(t);
 
 function entenderComando(texto) {
@@ -940,7 +1415,7 @@ setInterval(revisarNoche, 15000);
 // Si nadie toca la pantalla por un rato, vuelve sola al inicio
 addEventListener('pointerdown', () => { ultimoToque = Date.now(); }, true);
 setInterval(() => {
-  if (abierta && Date.now() - ultimoToque > 2 * 60000) history.state ? history.back() : cerrar();
+  if (abierta && Date.now() - ultimoToque > 2 * 60000) irAlInicio();
 }, 10000);
 
 // ---- que la pantalla no se apague (si el navegador lo permite) ----

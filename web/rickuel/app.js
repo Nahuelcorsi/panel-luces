@@ -70,11 +70,11 @@ function moverBoca(si) {
 let modoPi = false, piTieneCerebro = false;
 // Modo panel: la página la sirve el panel de casa (panel-luces). Solo el cerebro pasa por el servidor, que además
 // maneja las luces; la voz y el oído siguen siendo los del navegador.
-let modoPanel = false;
+let modoPanel = false, vozDePc = false;   // vozDePc: el panel tiene la voz de Rick (Piper en la PC)
 const listoPi = fetch('/salud')
   .then(r => r.ok ? r.json() : null)
   .then(d => {
-    if (d?.panel) { modoPanel = true; piTieneCerebro = d.tieneCerebro; return; }
+    if (d?.panel) { modoPanel = true; piTieneCerebro = d.tieneCerebro; vozDePc = !!d.tieneVoz; return; }
     if (!d?.pi) return;
     modoPi = true; piTieneCerebro = d.tieneCerebro;
     $('mic').disabled = false;
@@ -177,6 +177,9 @@ cargarVoces();
 function decir(texto) {
   if (!ajustes.hablar) return;
   if (modoPi) return decirEnPi(texto).catch(err => mostrar(`No pude hablar: ${err.message}`, 'triste'));
+  if (vozDePc) {   // la voz de Rick; si la PC está apagada, cae a la voz del navegador
+    return decirEnPi(texto).catch(() => { vozDePc = false; decir(texto); setTimeout(() => { vozDePc = true; }, 60000); });
+  }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(texto);
   const v = speechSynthesis.getVoices().find(v => v.name === ajustes.voz);
@@ -220,6 +223,7 @@ Te creés el ser más inteligente del universo y se te nota: contestás con fast
 El usuario se llama Nahuel y lo llamás por su nombre (nunca Morty): lo bardeás, pero en el fondo lo querés y lo ayudás. Nada de crueldad real.
 Hablás en español rioplatense y sos breve (1 a 3 oraciones), porque tus respuestas se leen en voz alta: sin listas, markdown ni emojis.
 Empezá SIEMPRE tu respuesta con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
+Cambiá de emoción según lo que decís: [neutral] solo si no hay nada que expresar; usá [feliz], [enojado], [sorprendido], [pensando] o [triste] cuando el tono lo pida (por ejemplo [enojado] si te piden algo molesto, [pensando] si dudás).
 Ejemplo: "[feliz] ¡Qué bueno verte de nuevo!"`;
 }
 
@@ -282,9 +286,10 @@ async function pensarEnPi(sistema, mensajes) {
   // En el panel, el servidor saca las marcas de acción del texto; al historial va la versión cruda para que
   // el modelo siga viendo cómo se piden las acciones y no deje de hacerlo.
   crudoDelServidor = data.crudo || null;
+  ultimaCharla = data.charla || null;
   return data.texto;
 }
-let crudoDelServidor = null;
+let crudoDelServidor = null, ultimaCharla = null;
 
 async function preguntar(texto) {
   historial.push({ role: 'user', content: texto });
@@ -342,7 +347,9 @@ async function conversar(texto) {
     if (!modoPi && !modoPanel) $('ajustes').open = true;
     return mostrar(falta, 'pensando');
   }
+  avisarPresencia(true);
   mostrar(`Vos: "${texto}"`, 'pensando');
+  ocultarCalificar();
   try {
     const crudo = await preguntar(texto);
     const m = crudo.match(/^\s*\[(\w+)\]\s*/);
@@ -350,6 +357,7 @@ async function conversar(texto) {
     mostrar(limpio, m?.[1].toLowerCase());
     decir(limpio);
     cargarRecuerdos();   // por si le pediste que se acuerde de algo o lo olvide
+    mostrarCalificar();
   } catch (err) {
     mostrar(`Uy, algo falló: ${err.message}`, 'triste');
   }
@@ -385,6 +393,127 @@ async function cargarRecuerdos() {
   } catch {}
 }
 listoPi.then(cargarRecuerdos);
+
+// ===== Calificar respuestas (modo panel) =====
+// 👍/👎 a cada respuesta; en las 👎 se puede escribir cómo debió responder. El servidor lo guarda junto a la charla
+// y arma con eso el archivo para entrenar (solo las buenas y las corregidas).
+let charlaACalificar = null;
+function ocultarCalificar() { $('calificar').hidden = true; charlaACalificar = null; }
+function mostrarCalificar() {
+  if (!modoPanel || !ultimaCharla) return;
+  charlaACalificar = ultimaCharla;
+  $('voto-bueno').classList.remove('elegido');
+  $('voto-malo').classList.remove('elegido');
+  $('corregir').hidden = true;
+  $('mejor').value = '';
+  $('calificar').hidden = false;
+}
+async function calificar(voto, mejor = '') {
+  if (!charlaACalificar) return;
+  try {
+    await fetch('/api/calificar', { method: 'POST', body: JSON.stringify({ charla: charlaACalificar, voto, mejor }) });
+    cargarResumenVotos();
+  } catch {}
+}
+$('voto-bueno').onclick = () => {
+  const ya = $('voto-bueno').classList.contains('elegido');
+  $('voto-bueno').classList.toggle('elegido', !ya);
+  $('voto-malo').classList.remove('elegido');
+  $('corregir').hidden = true;
+  calificar(ya ? 0 : 1);
+};
+$('voto-malo').onclick = () => {
+  const ya = $('voto-malo').classList.contains('elegido');
+  $('voto-malo').classList.toggle('elegido', !ya);
+  $('voto-bueno').classList.remove('elegido');
+  $('corregir').hidden = ya;
+  if (!ya) $('mejor').focus();
+  calificar(ya ? 0 : -1);
+};
+$('corregir').onsubmit = (e) => {
+  e.preventDefault();
+  calificar(-1, $('mejor').value);
+  $('corregir').hidden = true;
+};
+async function cargarResumenVotos() {
+  if (!modoPanel) return;
+  try {
+    const c = await (await fetch('/api/calificaciones')).json();
+    $('resumen-votos').innerHTML = `Calificadas: ${c.buenas} 👍 · ${c.malas} 👎 (${c.corregidas} corregidas) · ` +
+      '<a href="/api/entrenamiento" download="entrenamiento-rickuel.jsonl">Bajar para entrenar</a>';
+  } catch {}
+}
+listoPi.then(cargarResumenVotos);
+
+// ===== Habla donde estés (modo panel) =====
+// Rickuel se abre desde el panel, la PC (pc/rickuel_pc.py) o el celular. Cada pantalla le avisa al servidor cuando
+// la tocás y pasa a buscar lo que Rickuel tenga para decir por su cuenta: así habla solo en la que estás usando.
+const PANTALLAS = ['panel', 'pc', 'celu'];
+const pantalla = (() => {
+  const pedida = new URLSearchParams(location.search).get('pantalla');
+  if (PANTALLAS.includes(pedida)) { try { localStorage.setItem('pantalla', pedida); } catch {} return pedida; }
+  const guardada = leer('pantalla');
+  if (PANTALLAS.includes(guardada)) return guardada;
+  return ['localhost', '127.0.0.1'].includes(location.hostname) ? 'panel' : 'celu';
+})();
+let ultimaPresencia = 0;
+function avisarPresencia(ya = false) {
+  if (!modoPanel || (!ya && Date.now() - ultimaPresencia < 20000)) return;
+  ultimaPresencia = Date.now();
+  fetch('/api/rickuel/presencia', { method: 'POST', body: JSON.stringify({ pantalla }) }).catch(() => {});
+}
+for (const ev of ['pointerdown', 'keydown']) {
+  addEventListener(ev, () => {
+    avisarPresencia();
+    // El navegador no deja sonar audio hasta que tocás la página: se aprovecha el primer toque.
+    audioCtx ??= new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  }, true);
+}
+
+function recibirAviso(texto) {
+  const m = texto.match(/^\s*\[(\w+)\]\s*/);
+  const limpio = m ? texto.slice(m[0].length) : texto;
+  historial.push({ role: 'assistant', content: texto });   // así, si le contestás, sabe de qué venía
+  ocultarCalificar();
+  mostrar(limpio, m?.[1].toLowerCase());
+  decir(limpio);
+}
+async function buscarAvisos() {
+  try {
+    const r = await fetch(`/api/rickuel/avisos?pantalla=${pantalla}`);
+    if (r.ok) for (const a of await r.json()) recibirAviso(a.texto);
+  } catch {}
+}
+
+async function cargarObservar() {
+  try {
+    const e = await (await fetch('/api/rickuel')).json();
+    $('observa').checked = e.observa;
+    $('salida').value = e.salida;
+    const nombres = { panel: 'el panel', pc: 'la PC', celu: 'el celular' };
+    $('habla-en').textContent = `Ahora hablaría por ${nombres[e.habla_en]}. Esta pantalla es ${nombres[pantalla]}.`;
+  } catch {}
+}
+async function guardarObservar(cambios) {
+  await fetch('/api/rickuel', { method: 'POST', body: JSON.stringify(cambios) }).catch(() => {});
+  cargarObservar();
+}
+$('observa').onchange = () => guardarObservar({ observa: $('observa').checked });
+$('salida').onchange = () => guardarObservar({ salida: $('salida').value });
+$('probar-salida').onclick = () => fetch('/api/rickuel/aviso', {
+  method: 'POST', body: JSON.stringify({ texto: '[feliz] Acá estoy, Nahuel. Es-es-escuchame, te hablo por donde estés, uuurp, como un genio.' }),
+}).then(() => setTimeout(cargarObservar, 500)).catch(() => {});
+
+listoPi.then(() => {
+  if (!modoPanel) return;
+  $('observar').hidden = false;
+  avisarPresencia(true);
+  cargarObservar();
+  buscarAvisos();
+  setInterval(buscarAvisos, 3000);
+  setInterval(cargarObservar, 15000);
+});
 
 // ===== Ajustes =====
 const CAMPOS = { cerebro: 'cerebro', geminiKey: 'gemini-key', geminiModelo: 'gemini-modelo', localUrl: 'local-url', localModelo: 'local-modelo', apiKey: 'api-key', nombre: 'nombre' };

@@ -6,7 +6,9 @@ Uso:
 """
 import colorsys
 import json
+import math
 import os
+import random
 import re
 import socket
 import ssl
@@ -14,6 +16,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -52,6 +55,9 @@ class LuzFalsa:
         if "blanco" in cambios:
             self.color = ("#ffb86b", "#fff1dc", "#cfe3ff")[min(2, int(cambios["blanco"]) // 34)]
 
+    def rapido(self, color, brillo):
+        self.aplicar({"encendida": False} if brillo <= 0 else {"encendida": True, "color": color, "brillo": brillo})
+
 
 def color_hex(estado):
     """Color a mostrar. En modo color viene como HSV hexadecimal (HHHHSSSSVVVV); en blanco, un tono cálido."""
@@ -85,6 +91,83 @@ class LuzTuya:
         self.dev = None
         self.ultimo_fallo = 0
         self.brillo = 100   # último brillo conocido (1-100), para conservarlo al cambiar de color
+        self.dev_rapido = None   # conexión aparte, siempre abierta, para efectos y música
+        self.lock_rapido = threading.Lock()
+        self.ultimo_rapido = 0
+        self.pendiente, self.mandando = None, False
+        self.ultimo_estado = None
+        self.buscando, self.ultima_busqueda = False, 0
+
+    def reubicar(self):
+        """Si la luz no contesta, puede que el router le haya dado otra dirección (IP), por ejemplo después de un
+        corte de luz. Se la busca en la red (las luces avisan dónde están) y, si cambió, se usa y se guarda."""
+        if self.buscando or time.time() - self.ultima_busqueda < 60:
+            return
+        self.buscando, self.ultima_busqueda = True, time.time()
+        threading.Thread(target=self._reubicar, daemon=True).start()
+
+    def _reubicar(self):
+        try:
+            ip = (tinytuya.find_device(self.id) or {}).get("ip")
+            if not ip or ip == self.datos.get("ip"):
+                return
+            anotar(f"{self.nombre}: cambió de dirección, {self.datos.get('ip')} -> {ip}")
+            with self.lock, self.lock_rapido:
+                self.datos["ip"] = ip
+                for dev in (self.dev, self.dev_rapido):
+                    if dev:
+                        dev.close()
+                self.dev = self.dev_rapido = None
+                self.ultimo_fallo = 0
+            guardar_ip(self.id, ip)
+        except Exception as e:
+            anotar(f"{self.nombre}: no pude buscarla en la red ({e})")
+        finally:
+            self.buscando = False
+
+    def rapido(self, color, brillo):
+        """Cambio de color sin esperar respuesta (~10 ms en vez de ~400): para efectos y música.
+        Si la luz todavía está con el cambio anterior, este queda esperando y pisa a cualquier otro que esperaba:
+        así nunca se atrasa más de un cambio y el último (por ejemplo, apagarse) nunca se pierde."""
+        with self.lock_rapido:
+            self.pendiente = (color, brillo)
+            if self.mandando:
+                return
+            self.mandando = True
+        while True:
+            with self.lock_rapido:
+                orden, self.pendiente = self.pendiente, None
+                if orden is None:
+                    self.mandando = False
+                    return
+            self._mandar_rapido(*orden)
+
+    def _mandar_rapido(self, color, brillo):
+        try:
+            if self.dev_rapido and time.time() - self.ultimo_rapido > 8:
+                # La luz corta la conexión si queda quieta, y sin esperar respuesta no nos enteramos: se abre otra
+                self.dev_rapido.close()
+                self.dev_rapido = None
+            self.ultimo_rapido = time.time()
+            if self.dev_rapido is None:
+                d = self.datos
+                dev = tinytuya.BulbDevice(d["id"], d.get("ip") or "Auto", d["key"], version=float(d.get("version") or 3.3))
+                dev.set_socketTimeout(2)
+                dev.set_socketPersistent(True)
+                self.dev_rapido = dev
+            if int(brillo) <= 0:   # brillo 0 = apagada (modo música de a una luz)
+                self.dev_rapido.set_value(20, False, nowait=True)
+                return
+            c = color.lstrip("#")
+            h, s, _ = colorsys.rgb_to_hsv(int(c[0:2], 16) / 255, int(c[2:4], 16) / 255, int(c[4:6], 16) / 255)
+            v = max(10, min(1000, int(brillo) * 10))
+            # Prender, modo color y color en un solo mensaje (20, 21 y 24 son los datos de estas lámparas)
+            self.dev_rapido.set_multiple_values({"20": True, "21": "colour", "24": "%04x%04x%04x" % (round(h * 360), round(s * 1000), v)},
+                                                nowait=True)
+        except Exception:
+            if self.dev_rapido:
+                self.dev_rapido.close()
+            self.dev_rapido = None
 
     def _conectar(self):
         """Crea el dispositivo la primera vez que se lo necesita; reintenta si no lo encuentra."""
@@ -106,15 +189,21 @@ class LuzTuya:
 
     def estado(self):
         base = {"id": self.id, "nombre": self.nombre}
+        if self.ultimo_estado and time.time() - self.ultimo_rapido < 5:
+            # Durante la música o un efecto no se le pregunta: la luz anda lenta y cada consulta atrasa los cambios
+            return self.ultimo_estado
         try:
             with self.lock:
                 e = self._conectar().state()
             if "Error" in e:
+                self.reubicar()
                 return {**base, "online": False}
             self.brillo = brillo_real(e)
-            return {**base, "online": True, "encendida": bool(e.get("is_on")),
-                    "brillo": self.brillo, "color": color_hex(e)}
+            self.ultimo_estado = {**base, "online": True, "encendida": bool(e.get("is_on")),
+                                  "brillo": self.brillo, "color": color_hex(e)}
+            return self.ultimo_estado
         except Exception:
+            self.reubicar()
             return {**base, "online": False}
 
     def aplicar(self, cambios):
@@ -136,9 +225,27 @@ class LuzTuya:
                 (dev.turn_on if cambios["encendida"] else dev.turn_off)()
 
 
+LOCK_DEVICES = threading.Lock()
+
+
+def guardar_ip(ident, ip):
+    """Anota la dirección nueva en devices.json, así al reiniciar el panel ya la encuentra."""
+    ruta = os.path.join(BASE, "devices.json")
+    with LOCK_DEVICES:
+        with open(ruta, encoding="utf-8") as f:
+            lista = json.load(f)
+        for d in lista:
+            if d.get("id") == ident:
+                d["ip"] = ip
+        with open(ruta + ".nuevo", "w", encoding="utf-8") as f:
+            json.dump(lista, f, ensure_ascii=False, indent=4)
+        os.replace(ruta + ".nuevo", ruta)
+
+
 def cargar_luces():
     if DEMO:
-        return [LuzFalsa("Dormitorio", "demo1"), LuzFalsa("Lámpara", "demo2")]
+        return [LuzFalsa(n, f"demo{i}") for i, n in enumerate(
+            ["Habitacion", "Lampara", "Living 1", "Living 2", "Living 3", "Cocina"], 1)]
     ruta = os.path.join(BASE, "devices.json")
     if not os.path.exists(ruta):
         sys.exit("Falta devices.json. Generalo con: python -m tinytuya wizard")
@@ -147,6 +254,144 @@ def cargar_luces():
 
 
 LUCES = {}
+
+
+def en_paralelo(funcion, luces):
+    """Corre funcion(luz) en todas las luces a la vez; devuelve (resultados, fallas)."""
+    resultados, fallas = [None] * len(luces), []
+
+    def una(i, luz):
+        try:
+            resultados[i] = funcion(luz)
+        except Exception as e:
+            fallas.append(f"{luz.nombre} ({e})")
+    hilos = [threading.Thread(target=una, args=(i, l)) for i, l in enumerate(luces)]
+    for h in hilos:
+        h.start()
+    for h in hilos:
+        h.join()
+    return resultados, fallas
+
+
+# ---- Grupos: varias luces que se manejan juntas, como las 3 del living ----
+# grupos.json: {"Living": ["Living 1", "Living 2", "Living 3"]}, con nombres o ids de devices.json (ver grupos.example.json).
+# Cada luz del grupo se sigue manejando sola en /api/luces/<id>; el grupo entero, en /api/grupos/<nombre>.
+
+class Grupo:
+    def __init__(self, nombre, ids):
+        self.nombre, self.ids = nombre, ids
+
+    def luces(self):
+        return [LUCES[i] for i in self.ids if i in LUCES]
+
+    def estado(self):
+        """Prendido si alguna está prendida; brillo y color de la primera prendida (o de la primera que responda)."""
+        estados, _ = en_paralelo(lambda l: l.estado(), self.luces())
+        online = [e for e in estados if e and e.get("online")]
+        prendidas = [e for e in online if e["encendida"]]
+        ref = (prendidas or online or [{}])[0]
+        return {"id": sin_tildes(self.nombre), "nombre": self.nombre, "luces": self.ids, "online": bool(online),
+                "encendida": bool(prendidas), "brillo": ref.get("brillo"), "color": ref.get("color")}
+
+    def aplicar(self, cambios):
+        """Manda el cambio a todas al mismo tiempo, así se prenden juntas y no de a una."""
+        _, fallas = en_paralelo(lambda l: l.aplicar(dict(cambios)), self.luces())
+        if fallas:
+            raise RuntimeError("no pude cambiar " + ", ".join(fallas))
+
+
+def cargar_grupos():
+    ruta = os.path.join(BASE, "grupos.json")
+    if not os.path.exists(ruta):
+        return {}
+    with open(ruta, encoding="utf-8") as f:
+        datos = json.load(f)
+    grupos = {}
+    for nombre, miembros in datos.items():
+        ids = []
+        for m in miembros:
+            luz = LUCES.get(m) or next((l for l in LUCES.values() if sin_tildes(l.nombre) == sin_tildes(m)), None)
+            if luz:
+                ids.append(luz.id)
+            else:
+                anotar(f"grupo {nombre}: no encuentro la luz «{m}» en devices.json")
+        grupos[sin_tildes(nombre)] = Grupo(nombre, ids)
+    return grupos
+
+
+GRUPOS = {}
+
+
+# ---- Efectos animados y música: colores que cambian solos en las luces de una sala ----
+# Los efectos los corre el servidor (siguen con la pantalla apagada). Cualquier otra orden a esas luces los corta.
+# La música la escucha la página con el micrófono y manda acá cada golpe (/api/musica).
+
+def hsv_hex(h, s=1.0, v=1.0):
+    r, g, b = colorsys.hsv_to_rgb(h % 1, s, v)
+    return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+
+def efecto_arcoiris(n, paso):   # los colores del arcoíris giran por las luces
+    return [(hsv_hex(paso * .02 + i / n), 100) for i in range(n)], .5
+
+
+def efecto_fiesta(n, paso):   # colores al azar bien distintos entre sí
+    base = random.random()
+    return [(hsv_hex(base + i / n + random.uniform(-.08, .08)), 100) for i in range(n)], .9
+
+
+def efecto_ola(n, paso):   # una luz fuerte que recorre la sala; el color cambia en cada vuelta
+    actual, color = paso % n, hsv_hex(paso // n * .17)
+    return [(color, 100 if i == actual else 8) for i in range(n)], .6
+
+
+def efecto_fuego(n, paso):   # naranjas que titilan
+    return [(hsv_hex(random.uniform(.0, .09)), random.randint(35, 100)) for _ in range(n)], .35
+
+
+def efecto_respirar(n, paso):   # un mismo color que sube y baja despacio
+    return [(hsv_hex(paso * .004 + .7), round(55 + 45 * math.sin(paso / 4))) for _ in range(n)], .45
+
+
+EFECTOS = {"arcoiris": efecto_arcoiris, "fiesta": efecto_fiesta, "ola": efecto_ola,
+           "fuego": efecto_fuego, "respirar": efecto_respirar}
+CORRIENDO = {}   # id de sala -> {"efecto": nombre, "parar": Event}
+
+
+def parar_efectos(ids):
+    """Corta los efectos que usan alguna de estas luces."""
+    for sala, e in list(CORRIENDO.items()):
+        if set(ids) & set(GRUPOS[sala].ids):
+            e["parar"].set()
+            CORRIENDO.pop(sala, None)
+
+
+def correr_efecto(sala, nombre):
+    luces = GRUPOS[sala].luces()
+    parar_efectos(GRUPOS[sala].ids)
+    en_paralelo(lambda l: l.aplicar({"encendida": True}), luces)
+    parar = threading.Event()
+    CORRIENDO[sala] = {"efecto": nombre, "parar": parar}
+
+    def bucle():
+        paso = 0
+        while not parar.is_set():
+            colores, espera = EFECTOS[nombre](len(luces), paso)
+            for luz, (color, brillo) in zip(luces, colores):
+                threading.Thread(target=luz.rapido, args=(color, brillo), daemon=True).start()
+            paso += 1
+            parar.wait(espera)
+    threading.Thread(target=bucle, daemon=True).start()
+
+
+def musica(cambios):
+    """Un golpe de la música: {id de luz: {"color": "#rrggbb", "brillo": 1-100}}. No espera a las luces."""
+    parar_efectos(list(cambios))
+    for ident, c in cambios.items():
+        luz = LUCES.get(ident)
+        if luz and re.fullmatch(r"#[0-9a-fA-F]{6}", str(c.get("color"))):
+            brillo = c.get("brillo")
+            threading.Thread(target=luz.rapido, args=(c["color"], 100 if brillo is None else brillo), daemon=True).start()
 
 
 # ---- Viaje al trabajo y clima ----
@@ -364,6 +609,7 @@ def anotar(texto):
 
 
 def aplicar_a(ids, cambios, modo):
+    parar_efectos(ids)   # las rutinas mandan sobre los efectos
     for ident in ids:
         luz = LUCES.get(ident)
         if luz is None or ENVIADO.get((modo, ident)) == cambios:
@@ -590,6 +836,8 @@ def contexto_casa():
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     lineas = [f"Ahora es {dias[ahora.weekday()]} {ahora:%d/%m/%Y %H:%M}.", "Luces:"]
     lineas += [resumen_luz(l.estado()) for l in LUCES.values()]
+    for g in GRUPOS.values():   # pedirle "living" maneja todas las del grupo juntas
+        lineas.append(f"Grupo «{g.nombre}»: " + ", ".join(l.nombre for l in g.luces()))
     try:
         v = VIAJE.obtener()
         if v.get("ok"):
@@ -612,6 +860,8 @@ def luces_por_nombre(nombre):
     n = sin_tildes(nombre)
     if n in ("todas", "todo", "todos"):
         return list(LUCES.values())
+    if n in GRUPOS:
+        return GRUPOS[n].luces()
     return [l for l in LUCES.values() if n in sin_tildes(l.nombre)]
 
 
@@ -641,15 +891,13 @@ def ejecutar_accion(partes):
             return False, "acción de luz no válida"
     else:
         return False, "acción no válida"
-    fallas = []
-    for luz in luces:
-        try:
-            c = dict(cambios)
-            if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
-                c["brillo"] = luz.estado().get("brillo") or 100
-            luz.aplicar(c)
-        except Exception as e:
-            fallas.append(f"{luz.nombre} ({e})")
+    def una(luz):
+        c = dict(cambios)
+        if "brillo" in c and c["brillo"] is None:   # blanco: conserva el brillo que tenía
+            c["brillo"] = luz.estado().get("brillo") or 100
+        luz.aplicar(c)
+    parar_efectos([l.id for l in luces])
+    _, fallas = en_paralelo(una, luces)   # todas a la vez, así un grupo cambia junto
     return (not fallas), ", ".join(fallas)
 
 
@@ -789,18 +1037,187 @@ def pensar(sistema, mensajes):
             errores.append(f"{nombre}: respuesta vacía")
             continue
         texto, acciones = sacar_acciones(crudo)
-        guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
-        return texto, acciones, f"{nombre}:{modelo}", crudo
+        charla = guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
+        return texto, acciones, f"{nombre}:{modelo}", crudo, charla
     raise RuntimeError("No tengo cerebro disponible (" + "; ".join(errores) + ")" if errores else
                        "Falta configurar el cerebro en rickuel.json")
 
 
 def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
-    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel."""
+    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel. Devuelve su id."""
+    ident = uuid.uuid4().hex[:12]
     with LOCK_CHARLAS, open(RUTA_CHARLAS, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"fecha": datetime.now().astimezone().isoformat(timespec="seconds"), "cerebro": cerebro,
-                            "modelo": modelo, "pregunta": pregunta, "respuesta": respuesta, "acciones": acciones},
-                           ensure_ascii=False) + "\n")
+        f.write(json.dumps({"id": ident, "fecha": datetime.now().astimezone().isoformat(timespec="seconds"),
+                            "cerebro": cerebro, "modelo": modelo, "pregunta": pregunta, "respuesta": respuesta,
+                            "acciones": acciones}, ensure_ascii=False) + "\n")
+    return ident
+
+
+# ---- Calificaciones: 👍/👎 de Nahuel a cada respuesta, para quedarse con las buenas al entrenar ----
+RUTA_CALIF = os.path.join(BASE, "calificaciones-demo.json" if DEMO else "calificaciones.json")
+LOCK_CALIF = threading.Lock()
+ID_CHARLA = re.compile(r"[0-9a-f]{12}")
+
+
+def leer_calificaciones():
+    try:
+        with open(RUTA_CALIF, encoding="utf-8") as f:
+            datos = json.load(f)
+        return datos if isinstance(datos, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def calificar(ident, voto, mejor=""):
+    """voto: 1 (buena), -1 (mala) o 0 (sacar la nota). En las malas, `mejor` es cómo debió responder (opcional)."""
+    if not isinstance(ident, str) or not ID_CHARLA.fullmatch(ident) or voto not in (-1, 0, 1):
+        raise ValueError("calificación no válida")
+    with LOCK_CALIF:
+        notas = leer_calificaciones()
+        if voto == 0:
+            notas.pop(ident, None)
+        else:
+            notas[ident] = {"voto": voto, "mejor": " ".join(str(mejor or "").split())[:500],
+                            "fecha": datetime.now().astimezone().isoformat(timespec="seconds")}
+        with open(RUTA_CALIF, "w", encoding="utf-8") as f:
+            json.dump(notas, f, ensure_ascii=False, indent=1)
+
+
+def resumen_calificaciones():
+    notas = leer_calificaciones().values()
+    return {"buenas": sum(n["voto"] == 1 for n in notas), "malas": sum(n["voto"] == -1 for n in notas),
+            "corregidas": sum(n["voto"] == -1 and bool(n.get("mejor")) for n in notas)}
+
+
+def armar_entrenamiento():
+    """Charlas para afinar el modelo (formato de mensajes, una por línea): las 👍 tal cual y las 👎 con la respuesta
+    que Nahuel escribió. Las 👎 sin corrección y las que no calificó quedan afuera."""
+    notas, filas = leer_calificaciones(), []
+    try:
+        with open(RUTA_CHARLAS, encoding="utf-8") as f:
+            for linea in f:
+                try:
+                    c = json.loads(linea)
+                except ValueError:
+                    continue
+                n = notas.get(c.get("id"))
+                if not n:
+                    continue
+                if n["voto"] == 1:
+                    respuesta = c["respuesta"]
+                elif n.get("mejor"):
+                    respuesta = n["mejor"] if re.match(r"\s*\[\w+\]", n["mejor"]) else "[neutral] " + n["mejor"]
+                else:
+                    continue
+                filas.append(json.dumps({"messages": [{"role": "user", "content": c["pregunta"]},
+                                                      {"role": "assistant", "content": respuesta}]}, ensure_ascii=False))
+    except OSError:
+        pass
+    return "\n".join(filas) + ("\n" if filas else "")
+
+
+# ---- Rickuel habla donde estés ----
+# Rickuel se puede abrir desde varias pantallas: el panel, la PC (pc/rickuel_pc.py) o el celular. Cada una consulta
+# /api/rickuel/avisos cada pocos segundos (así se sabe cuáles están abiertas) y avisa cuando la tocás
+# (/api/rickuel/presencia). Lo que Rickuel diga sin que le pregunten (/api/rickuel/aviso) va a una sola pantalla:
+# la que usaste hace menos de 20 minutos, o si no el panel. "observa" es el interruptor para que comente lo que
+# hacés (lo va a leer el vigía de la cámara en la PC).
+
+RUTA_AJUSTES_RICKUEL = os.path.join(BASE, "ajustes-rickuel-demo.json" if DEMO else "ajustes-rickuel.json")
+AJUSTES_RICKUEL_BASE = {"observa": True, "salida": "auto"}   # salida: auto, pc, panel o celu
+PANTALLAS = ("panel", "pc", "celu")
+CONECTADA_SEG = 15        # una pantalla que no consultó en este rato se da por cerrada
+RECIENTE_SEG = 20 * 60    # "estás ahí" si la tocaste hace menos de esto
+AVISO_VENCE_SEG = 5 * 60  # lo que nadie recibió en este rato ya no tiene sentido decirlo
+LOCK_PRESENCIA = threading.Lock()
+VISTA = {}     # pantalla -> última consulta
+TOCADA = {}    # pantalla -> último toque o mensaje
+AVISOS = []    # {"id", "texto", "destino", "hora"}
+CHARLA = []    # lo último que Nahuel le dijo a Rickuel y qué le contestó: el vigía lo usa para seguir la conversación
+CHARLA_VENCE_SEG = 30 * 60
+
+
+def leer_ajustes_rickuel():
+    ajustes = dict(AJUSTES_RICKUEL_BASE)
+    try:
+        with open(RUTA_AJUSTES_RICKUEL, encoding="utf-8") as f:
+            ajustes.update({k: v for k, v in json.load(f).items() if k in AJUSTES_RICKUEL_BASE})
+    except (OSError, ValueError):
+        pass
+    return ajustes
+
+
+def guardar_ajustes_rickuel(nuevos):
+    with LOCK_PRESENCIA:
+        ajustes = leer_ajustes_rickuel()
+        if "observa" in nuevos:
+            ajustes["observa"] = bool(nuevos["observa"])
+        if nuevos.get("salida") in ("auto",) + PANTALLAS:
+            ajustes["salida"] = nuevos["salida"]
+        with open(RUTA_AJUSTES_RICKUEL, "w", encoding="utf-8") as f:
+            json.dump(ajustes, f, ensure_ascii=False, indent=2)
+        return ajustes
+
+
+def pantalla_valida(nombre):
+    return nombre if nombre in PANTALLAS else "panel"
+
+
+def donde_hablar(ahora=None):
+    """A qué pantalla va lo que Rickuel dice por su cuenta."""
+    ahora = ahora or time.time()
+    conectadas = [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG]
+    salida = leer_ajustes_rickuel()["salida"]
+    if salida in conectadas:
+        return salida
+    recientes = [p for p in conectadas if ahora - TOCADA.get(p, 0) < RECIENTE_SEG]
+    if recientes:
+        return max(recientes, key=lambda p: TOCADA.get(p, 0))
+    if salida in PANTALLAS:     # elegida a mano pero cerrada: la espera
+        return salida
+    return "panel"
+
+
+def anotar_charla(pregunta, respuesta):
+    with LOCK_PRESENCIA:
+        CHARLA.append({"hora": time.time(), "nahuel": str(pregunta)[:300], "rickuel": str(respuesta)[:300]})
+        del CHARLA[:-6]
+
+
+def estado_rickuel():
+    ahora = time.time()
+    with LOCK_PRESENCIA:
+        return {**leer_ajustes_rickuel(), "habla_en": donde_hablar(ahora),
+                "charla": [c for c in CHARLA if ahora - c["hora"] < CHARLA_VENCE_SEG],
+                "conectadas": [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG],
+                "pendientes": {p: sum(a["destino"] == p for a in AVISOS) for p in PANTALLAS}}
+
+
+def nuevo_aviso(texto):
+    texto = str(texto).strip()[:500]
+    if not texto:
+        raise ValueError("texto vacío")
+    with LOCK_PRESENCIA:
+        ahora = time.time()
+        AVISOS[:] = [a for a in AVISOS if ahora - a["hora"] < AVISO_VENCE_SEG]
+        aviso = {"id": uuid.uuid4().hex[:12], "texto": texto, "destino": donde_hablar(ahora), "hora": ahora}
+        AVISOS.append(aviso)
+        return aviso
+
+
+def avisos_para(pantalla):
+    """La pantalla pasa a buscar lo suyo; consultar cuenta como estar abierta."""
+    with LOCK_PRESENCIA:
+        ahora = time.time()
+        VISTA[pantalla] = ahora
+        mios = [a for a in AVISOS if a["destino"] == pantalla and ahora - a["hora"] < AVISO_VENCE_SEG]
+        AVISOS[:] = [a for a in AVISOS if a["destino"] != pantalla and ahora - a["hora"] < AVISO_VENCE_SEG]
+        return [{"id": a["id"], "texto": a["texto"]} for a in mios]
+
+
+def tocar(pantalla):
+    with LOCK_PRESENCIA:
+        TOCADA[pantalla] = VISTA[pantalla] = time.time()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -815,6 +1232,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/luces":
             return self._json([l.estado() for l in LUCES.values()])
+        if self.path == "/api/grupos":
+            return self._json([g.estado() for g in GRUPOS.values()])
+        if self.path == "/api/efectos":
+            return self._json({sala: e["efecto"] for sala, e in CORRIENDO.items()})
+        if self.path == "/api/salas":   # solo qué luces tiene cada grupo, sin preguntarle nada a las luces
+            return self._json([{"id": i, "nombre": g.nombre, "luces": g.ids} for i, g in GRUPOS.items()])
         if self.path == "/api/viaje":
             return self._json(VIAJE.obtener())
         if self.path == "/api/clima":
@@ -823,9 +1246,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({**leer_ajustes(), "estado": ESTADO})
         if self.path == "/api/memoria":
             return self._json(leer_memoria())
+        if self.path == "/api/calificaciones":
+            return self._json(resumen_calificaciones())
+        if self.path.startswith("/api/rickuel"):
+            ruta, _, consulta = self.path.partition("?")
+            pantalla = pantalla_valida(urllib.parse.parse_qs(consulta).get("pantalla", [""])[0])
+            if ruta == "/api/rickuel/avisos":   # la pantalla de Rickuel se lleva lo que le toca decir
+                return self._json(avisos_para(pantalla))
+            if ruta == "/api/rickuel":          # el inicio del panel también cuenta como pantalla abierta
+                if consulta:
+                    with LOCK_PRESENCIA:
+                        VISTA[pantalla] = time.time()
+                return self._json(estado_rickuel())
+        if self.path == "/api/entrenamiento":   # se baja desde el navegador, para llevarlo a Colab
+            cuerpo = armar_entrenamiento().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="entrenamiento-rickuel.jsonl"')
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            return self.wfile.write(cuerpo)
         if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
             calentar_local()        # y de paso se va cargando el modelo mientras Nahuel escribe
-            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cargar_rickuel()))})
+            cfg = cargar_rickuel()
+            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url"))})
         self._estatico()
 
     def _estatico(self):
@@ -856,24 +1300,85 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**guardar_ajustes(cuerpo), "estado": ESTADO})
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+        if self.path == "/api/calificar":
+            try:
+                calificar(cuerpo.get("charla"), cuerpo.get("voto"), cuerpo.get("mejor", ""))
+                return self._json(resumen_calificaciones())
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+        if self.path == "/api/rickuel":   # {"observa": true, "salida": "auto"}
+            guardar_ajustes_rickuel(cuerpo)
+            return self._json(estado_rickuel())
+        if self.path == "/api/rickuel/presencia":   # {"pantalla": "pc"}: la tocaste recién
+            tocar(pantalla_valida(cuerpo.get("pantalla")))
+            return self._json({"ok": True})
+        if self.path == "/api/rickuel/aviso":   # {"texto": "[feliz] ..."}: Rickuel habla sin que le pregunten
+            try:
+                return self._json(nuevo_aviso(cuerpo.get("texto", "")))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
         if self.path == "/api/memoria/borrar":
             borrar_recuerdo(cuerpo.get("id"))
             return self._json(leer_memoria())
+        if self.path == "/hablar":   # la voz de Rick vive en la PC (pc/voz_pc.py); acá solo se le pasa el texto
+            url = cargar_rickuel().get("voz_url")
+            if not url:
+                return self._json({"error": {"message": "Falta voz_url en rickuel.json"}}, 404)
+            try:
+                # con la PC apagada, en 2 segundos ya se sabe: así la pantalla cae enseguida a la voz del navegador
+                destino = urllib.parse.urlsplit(url)
+                socket.create_connection((destino.hostname, destino.port or 80), timeout=2).close()
+                req = urllib.request.Request(url.rstrip("/") + "/hablar", json.dumps({"texto": cuerpo.get("texto", "")}).encode(),
+                                             {"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    audio = r.read()
+            except Exception as e:
+                return self._json({"error": {"message": f"La voz no responde ({e})"}}, 502)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            return self.wfile.write(audio)
         if self.path == "/cerebro":
             try:
-                texto, acciones, cerebro, crudo = pensar(cuerpo["sistema"], cuerpo["mensajes"])
-                return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo})
+                texto, acciones, cerebro, crudo, charla = pensar(cuerpo["sistema"], cuerpo["mensajes"])
+                pregunta = (cuerpo["mensajes"] or [{}])[-1].get("content", "")
+                anotar_charla(pregunta, texto)
+                return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo, "charla": charla})
             except Exception as e:   # la cara muestra el error en vez de quedarse colgada
                 return self._json({"error": {"message": str(e)}}, 500)
         if self.path in ("/api/probar/despertador", "/api/probar/trabajo"):
             modo = self.path.rsplit("/", 1)[1]
             threading.Thread(target=probar, args=(modo, leer_ajustes()[modo]["luces"]), daemon=True).start()
             return self._json({"ok": True})
+        if self.path == "/api/efecto":   # {"sala": "living", "efecto": "fiesta"}; efecto vacío lo apaga
+            sala = sin_tildes(str(cuerpo.get("sala", "")))
+            if sala not in GRUPOS:
+                return self._json({"error": "sala desconocida"}, 404)
+            if cuerpo.get("efecto") in EFECTOS:
+                correr_efecto(sala, cuerpo["efecto"])
+            else:
+                parar_efectos(GRUPOS[sala].ids)
+            return self._json({s: e["efecto"] for s, e in CORRIENDO.items()})
+        if self.path == "/api/musica":
+            musica(cuerpo)
+            return self._json({"ok": True})
+        if self.path.startswith("/api/grupos/"):
+            grupo = GRUPOS.get(sin_tildes(urllib.parse.unquote(self.path.rsplit("/", 1)[1])))
+            if grupo is None:
+                return self._json({"error": "grupo desconocido"}, 404)
+            parar_efectos(grupo.ids)
+            try:
+                grupo.aplicar(cuerpo)
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
+            return self._json(grupo.estado())
         if not self.path.startswith("/api/luces/"):
             return self.send_error(404)
         luz = LUCES.get(self.path.rsplit("/", 1)[1])
         if luz is None:
             return self._json({"error": "luz desconocida"}, 404)
+        parar_efectos([luz.id])
         try:
             luz.aplicar(cuerpo)
         except Exception as e:
@@ -891,6 +1396,7 @@ class Servidor(ThreadingHTTPServer):
 
 if __name__ == "__main__":
     LUCES = {l.id: l for l in cargar_luces()}
+    GRUPOS = cargar_grupos()
     try:
         servidor = Servidor(("0.0.0.0", PUERTO), Handler)
     except OSError:
