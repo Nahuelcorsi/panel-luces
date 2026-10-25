@@ -4,6 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [Sin publicar]
 ### Agregado
+- Vigía de Rickuel (`pc/vigia.py`, `pc/vigia.bat`): en la PC, cada 4 minutos saca un cuadro de la cámara (RTSP por TCP), `gemma3:12b` lo describe en una frase que va a `pc/bitacora.jsonl` (la imagen no se guarda) y, si tiene ganas, Rickuel te comenta algo por `/api/rickuel/aviso`. Límites: uno cada 45 minutos, 6 por día, nada de 0 a 8 h. Respeta el interruptor «Rickuel observa». Configuración en `pc/vigia.json`.
 - Rickuel habla por la pantalla que estás usando: el panel, la PC o el celular avisan al servidor cuando los tocás y `/api/rickuel/aviso` manda lo que Rickuel diga por su cuenta a la última que usaste (o al panel); si llega algo para el panel, el inicio abre solo la pantalla de Rickuel. En «Cámara y voz» se fija por dónde habla, se prueba y está el interruptor «Rickuel observa» (para el vigía de la cámara, que viene después). Ajustes en `ajustes-rickuel.json`.
 - Rickuel en la PC: `pc/rickuel_pc.py` (o `pc/rickuel-pc.bat`) abre su pantalla en el navegador de la PC, con el micrófono y los parlantes de la PC, haciendo de puente en `localhost` hacia el panel.
 - La voz entrenada de Rick (Piper) en Rickuel: `pc/voz_pc.py` corre en la PC y el panel le pasa el texto por `/hablar` (`voz_url` en `rickuel.json`); la cara mueve la boca con el audio y, si la PC no responde, habla con la voz del navegador.

@@ -13,3 +13,6 @@ charlas*.jsonl
 memoria*.json
 calificaciones*.json
 entrenamiento*.jsonl
+pc/vigia.json
+pc/bitacora.jsonl
+pc/.venv-vigia/
