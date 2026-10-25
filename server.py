@@ -1278,6 +1278,9 @@ class Handler(BaseHTTPRequestHandler):
             if not url:
                 return self._json({"error": {"message": "Falta voz_url en rickuel.json"}}, 404)
             try:
+                # con la PC apagada, en 2 segundos ya se sabe: así la pantalla cae enseguida a la voz del navegador
+                destino = urllib.parse.urlsplit(url)
+                socket.create_connection((destino.hostname, destino.port or 80), timeout=2).close()
                 req = urllib.request.Request(url.rstrip("/") + "/hablar", json.dumps({"texto": cuerpo.get("texto", "")}).encode(),
                                              {"Content-Type": "application/json"})
                 with urllib.request.urlopen(req, timeout=30) as r:

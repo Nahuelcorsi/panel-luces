@@ -3,8 +3,12 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
+### Cambiado
+- Con la PC apagada, `/hablar` se da cuenta en 2 segundos (antes esperaba 30) y la pantalla pasa enseguida a la voz del navegador.
+- `pc/rickuel-pc.bat` ya trae la IP del celular del panel (192.168.0.9).
+
 ### Agregado
-- Una sola voz de Rick para todas las pantallas: `pc/instalar-voz-pc.py` (doble clic en la PC de escritorio) instala Piper en `pc/.venv-voz`, deja `pc/voz_pc.py` arrancando con Windows y muestra el `voz_url` para el `rickuel.json` del panel. `voz_pc.py` busca solo el modelo más nuevo en la carpeta de OneDrive de «compañero de escritorio», hace sonar los «uuurp» como eructo y no lee las etiquetas de emoción.
+- Una sola voz de Rick para todas las pantallas: `pc/instalar-voz-pc.py` (doble clic en la PC de escritorio) instala Piper en `pc/.venv-voz`, deja `pc/voz_pc.py` arrancando con Windows y muestra el `voz_url` para el `rickuel.json` del panel. `voz_pc.py` busca solo el modelo más nuevo en la carpeta de OneDrive de «compañero de escritorio», hace sonar los «uuurp» como eructo y no lee las etiquetas de emoción. Si en esa PC no está OneDrive, alcanza con pegar `es_MX-rick-medium.onnx` (y su `.json`) al lado de `voz_pc.py`.
 - Vigía de Rickuel (`pc/vigia.py`; se prueba con `pc/probar-vigia.py` y se deja andando con `pc/arrancar-vigia.py`): en la PC, cada minuto saca un cuadro de la cámara (RTSP por TCP), `gemma3:12b` lo describe en una frase que va a `pc/bitacora.jsonl` (la imagen no se guarda) y Rickuel te habla por `/api/rickuel/aviso`: cada ~4 minutos, cada ~2 si le venís contestando (el panel le pasa la charla reciente en `/api/rickuel`) y el doble de espera por cada comentario ignorado, hasta 40; nada de 0 a 8 h. Respeta el interruptor «Rickuel observa». Configuración en `pc/vigia.json`.
 - Rickuel habla por la pantalla que estás usando: el panel, la PC o el celular avisan al servidor cuando los tocás y `/api/rickuel/aviso` manda lo que Rickuel diga por su cuenta a la última que usaste (o al panel); si llega algo para el panel, el inicio abre solo la pantalla de Rickuel. En «Cámara y voz» se fija por dónde habla, se prueba y está el interruptor «Rickuel observa» (para el vigía de la cámara, que viene después). Ajustes en `ajustes-rickuel.json`.
 - Rickuel en la PC: `pc/rickuel_pc.py` (o `pc/rickuel-pc.bat`) abre su pantalla en el navegador de la PC, con el micrófono y los parlantes de la PC, haciendo de puente en `localhost` hacia el panel.
