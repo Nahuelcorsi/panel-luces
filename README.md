@@ -100,6 +100,8 @@ El cerebro se configura en `rickuel.json` (copialo de `rickuel.example.json`; es
 
 **Voz de Rick:** si en `rickuel.json` ponés `voz_url` (la PC con `pc/voz_pc.py` corriendo, por ejemplo `http://192.168.0.5:8090`), Rickuel habla con la voz entrenada de Rick en vez de la del navegador. En la PC: `python pc/voz_pc.py --modelo RUTA/es_MX-rick-medium.onnx` (necesita `pip install piper-tts` y el modelo; el `.onnx.json` va al lado). Si la PC está apagada, vuelve a la voz del navegador.
 
+**Rickuel en la PC y dónde habla:** en la PC, doble clic en `pc/rickuel-pc.bat` (antes cambiá la IP por la del celular del panel; conviene reservarla en el router). Abre a Rickuel en el navegador de la PC con su micrófono y sus parlantes: `pc/rickuel_pc.py` hace de puente en `http://localhost:8070`, porque el navegador solo deja usar el micrófono en `localhost` o https. Cuando Rickuel habla por su cuenta (`POST /api/rickuel/aviso {"texto": "[feliz] ..."}`), lo dice en la pantalla que tocaste hace menos de 20 minutos y, si no, en el panel; si es el panel, el inicio abre solo su pantalla. En «Cámara y voz», debajo del chat, se puede fijar la salida (PC, panel o celular), probarla, y prender o apagar «Rickuel observa». El navegador no deja sonar nada hasta que se toca la página una vez.
+
 Cada charla se guarda en `charlas.jsonl` (también en el `.gitignore`) para entrenar más adelante un modelo propio. Con `--demo` y sin `rickuel.json` usa un cerebro de mentira, solo para probar la pantalla.
 
 ## Seguridad

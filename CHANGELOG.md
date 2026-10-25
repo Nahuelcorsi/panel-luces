@@ -4,6 +4,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [Sin publicar]
 ### Agregado
+- Rickuel habla por la pantalla que estás usando: el panel, la PC o el celular avisan al servidor cuando los tocás y `/api/rickuel/aviso` manda lo que Rickuel diga por su cuenta a la última que usaste (o al panel); si llega algo para el panel, el inicio abre solo la pantalla de Rickuel. En «Cámara y voz» se fija por dónde habla, se prueba y está el interruptor «Rickuel observa» (para el vigía de la cámara, que viene después). Ajustes en `ajustes-rickuel.json`.
+- Rickuel en la PC: `pc/rickuel_pc.py` (o `pc/rickuel-pc.bat`) abre su pantalla en el navegador de la PC, con el micrófono y los parlantes de la PC, haciendo de puente en `localhost` hacia el panel.
 - La voz entrenada de Rick (Piper) en Rickuel: `pc/voz_pc.py` corre en la PC y el panel le pasa el texto por `/hablar` (`voz_url` en `rickuel.json`); la cara mueve la boca con el audio y, si la PC no responde, habla con la voz del navegador.
 - Calificar las respuestas de Rickuel con 👍/👎 (y una corrección opcional en las 👎): cada charla tiene un `id`, las notas se guardan en `calificaciones.json` y `/api/entrenamiento` arma el archivo para entrenar con las buenas y las corregidas.
 

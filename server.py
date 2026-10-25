@@ -1069,6 +1069,101 @@ def armar_entrenamiento():
     return "\n".join(filas) + ("\n" if filas else "")
 
 
+# ---- Rickuel habla donde estés ----
+# Rickuel se puede abrir desde varias pantallas: el panel, la PC (pc/rickuel_pc.py) o el celular. Cada una consulta
+# /api/rickuel/avisos cada pocos segundos (así se sabe cuáles están abiertas) y avisa cuando la tocás
+# (/api/rickuel/presencia). Lo que Rickuel diga sin que le pregunten (/api/rickuel/aviso) va a una sola pantalla:
+# la que usaste hace menos de 20 minutos, o si no el panel. "observa" es el interruptor para que comente lo que
+# hacés (lo va a leer el vigía de la cámara en la PC).
+
+RUTA_AJUSTES_RICKUEL = os.path.join(BASE, "ajustes-rickuel-demo.json" if DEMO else "ajustes-rickuel.json")
+AJUSTES_RICKUEL_BASE = {"observa": True, "salida": "auto"}   # salida: auto, pc, panel o celu
+PANTALLAS = ("panel", "pc", "celu")
+CONECTADA_SEG = 15        # una pantalla que no consultó en este rato se da por cerrada
+RECIENTE_SEG = 20 * 60    # "estás ahí" si la tocaste hace menos de esto
+AVISO_VENCE_SEG = 5 * 60  # lo que nadie recibió en este rato ya no tiene sentido decirlo
+LOCK_PRESENCIA = threading.Lock()
+VISTA = {}     # pantalla -> última consulta
+TOCADA = {}    # pantalla -> último toque o mensaje
+AVISOS = []    # {"id", "texto", "destino", "hora"}
+
+
+def leer_ajustes_rickuel():
+    ajustes = dict(AJUSTES_RICKUEL_BASE)
+    try:
+        with open(RUTA_AJUSTES_RICKUEL, encoding="utf-8") as f:
+            ajustes.update({k: v for k, v in json.load(f).items() if k in AJUSTES_RICKUEL_BASE})
+    except (OSError, ValueError):
+        pass
+    return ajustes
+
+
+def guardar_ajustes_rickuel(nuevos):
+    with LOCK_PRESENCIA:
+        ajustes = leer_ajustes_rickuel()
+        if "observa" in nuevos:
+            ajustes["observa"] = bool(nuevos["observa"])
+        if nuevos.get("salida") in ("auto",) + PANTALLAS:
+            ajustes["salida"] = nuevos["salida"]
+        with open(RUTA_AJUSTES_RICKUEL, "w", encoding="utf-8") as f:
+            json.dump(ajustes, f, ensure_ascii=False, indent=2)
+        return ajustes
+
+
+def pantalla_valida(nombre):
+    return nombre if nombre in PANTALLAS else "panel"
+
+
+def donde_hablar(ahora=None):
+    """A qué pantalla va lo que Rickuel dice por su cuenta."""
+    ahora = ahora or time.time()
+    conectadas = [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG]
+    salida = leer_ajustes_rickuel()["salida"]
+    if salida in conectadas:
+        return salida
+    recientes = [p for p in conectadas if ahora - TOCADA.get(p, 0) < RECIENTE_SEG]
+    if recientes:
+        return max(recientes, key=lambda p: TOCADA.get(p, 0))
+    if salida in PANTALLAS:     # elegida a mano pero cerrada: la espera
+        return salida
+    return "panel"
+
+
+def estado_rickuel():
+    ahora = time.time()
+    with LOCK_PRESENCIA:
+        return {**leer_ajustes_rickuel(), "habla_en": donde_hablar(ahora),
+                "conectadas": [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG],
+                "pendientes": {p: sum(a["destino"] == p for a in AVISOS) for p in PANTALLAS}}
+
+
+def nuevo_aviso(texto):
+    texto = str(texto).strip()[:500]
+    if not texto:
+        raise ValueError("texto vacío")
+    with LOCK_PRESENCIA:
+        ahora = time.time()
+        AVISOS[:] = [a for a in AVISOS if ahora - a["hora"] < AVISO_VENCE_SEG]
+        aviso = {"id": uuid.uuid4().hex[:12], "texto": texto, "destino": donde_hablar(ahora), "hora": ahora}
+        AVISOS.append(aviso)
+        return aviso
+
+
+def avisos_para(pantalla):
+    """La pantalla pasa a buscar lo suyo; consultar cuenta como estar abierta."""
+    with LOCK_PRESENCIA:
+        ahora = time.time()
+        VISTA[pantalla] = ahora
+        mios = [a for a in AVISOS if a["destino"] == pantalla and ahora - a["hora"] < AVISO_VENCE_SEG]
+        AVISOS[:] = [a for a in AVISOS if a["destino"] != pantalla and ahora - a["hora"] < AVISO_VENCE_SEG]
+        return [{"id": a["id"], "texto": a["texto"]} for a in mios]
+
+
+def tocar(pantalla):
+    with LOCK_PRESENCIA:
+        TOCADA[pantalla] = VISTA[pantalla] = time.time()
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, datos, codigo=200):
         cuerpo = json.dumps(datos).encode()
@@ -1097,6 +1192,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(leer_memoria())
         if self.path == "/api/calificaciones":
             return self._json(resumen_calificaciones())
+        if self.path.startswith("/api/rickuel"):
+            ruta, _, consulta = self.path.partition("?")
+            pantalla = pantalla_valida(urllib.parse.parse_qs(consulta).get("pantalla", [""])[0])
+            if ruta == "/api/rickuel/avisos":   # la pantalla de Rickuel se lleva lo que le toca decir
+                return self._json(avisos_para(pantalla))
+            if ruta == "/api/rickuel":          # el inicio del panel también cuenta como pantalla abierta
+                if consulta:
+                    with LOCK_PRESENCIA:
+                        VISTA[pantalla] = time.time()
+                return self._json(estado_rickuel())
         if self.path == "/api/entrenamiento":   # se baja desde el navegador, para llevarlo a Colab
             cuerpo = armar_entrenamiento().encode()
             self.send_response(200)
@@ -1143,6 +1248,17 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 calificar(cuerpo.get("charla"), cuerpo.get("voto"), cuerpo.get("mejor", ""))
                 return self._json(resumen_calificaciones())
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+        if self.path == "/api/rickuel":   # {"observa": true, "salida": "auto"}
+            guardar_ajustes_rickuel(cuerpo)
+            return self._json(estado_rickuel())
+        if self.path == "/api/rickuel/presencia":   # {"pantalla": "pc"}: la tocaste recién
+            tocar(pantalla_valida(cuerpo.get("pantalla")))
+            return self._json({"ok": True})
+        if self.path == "/api/rickuel/aviso":   # {"texto": "[feliz] ..."}: Rickuel habla sin que le pregunten
+            try:
+                return self._json(nuevo_aviso(cuerpo.get("texto", "")))
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)
         if self.path == "/api/memoria/borrar":

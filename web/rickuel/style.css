@@ -65,9 +65,9 @@ input, select, button {
 }
 button { cursor: pointer; background: #3b3f5c; }
 #mic.activo { background: #c0392b; }
-#ajustes { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
-#ajustes label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 14px; }
-#ajustes label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
+#ajustes, #observar { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
+#ajustes label, #observar label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 14px; }
+#ajustes label:has(input[type=checkbox]), #observar label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
 
 
 /* Pantalla completa en la Raspberry Pi (index.html?kiosko) */
@@ -75,7 +75,7 @@ body.kiosko { cursor: none; overflow: hidden; }
 body.kiosko #app { width: 100vw; height: 100vh; justify-content: center; gap: 0; }
 body.kiosko #cara { width: min(96vw, 84vh); }
 body.kiosko #burbuja { background: none; text-align: center; font-size: 18px; min-height: 0; padding: 0 16px; opacity: .8; }
-body.kiosko #chat, body.kiosko #ajustes { display: none; }
+body.kiosko #chat, body.kiosko #ajustes, body.kiosko #observar { display: none; }
 #memoria { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
 #recuerdos { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 30vh; overflow-y: auto; }
 #recuerdos li { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; }

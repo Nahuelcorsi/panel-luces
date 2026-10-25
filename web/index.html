@@ -1027,7 +1027,7 @@ rickuel.className = 'luz rickuel';
 rickuel.dataset.ambiente = '#1b3a22';
 rickuel.innerHTML = '<iframe title="Rickuel" allow="microphone; autoplay"></iframe>';
 detalle.appendChild(rickuel);
-document.getElementById('m-rickuel').onclick = () => {
+function abrirRickuel() {
   const marco = rickuel.querySelector('iframe');
   if (!marco.getAttribute('src')) {
     marco.src = '/rickuel/?panel';
@@ -1036,8 +1036,31 @@ document.getElementById('m-rickuel').onclick = () => {
       try { for (const ev of ['pointerdown', 'keydown']) marco.contentWindow.addEventListener(ev, () => { ultimoToque = Date.now(); }, true); } catch (e) {}
     };
   }
-  abrir(rickuel);
-};
+  if (abierta !== rickuel) abrir(rickuel);
+}
+document.getElementById('m-rickuel').onclick = abrirRickuel;
+
+// Rickuel también habla sin que le pregunten (ver /api/rickuel/aviso en server.py) y lo hace por la pantalla que
+// estás usando. Esta página cuenta como pantalla abierta y, si hay algo para decir acá, abre a Rickuel.
+const pantallaRickuel = (() => {
+  const pedida = new URLSearchParams(location.search).get('pantalla');
+  if (['panel', 'pc', 'celu'].includes(pedida)) { try { localStorage.setItem('pantalla', pedida); } catch (e) {} return pedida; }
+  try { const g = localStorage.getItem('pantalla'); if (['panel', 'pc', 'celu'].includes(g)) return g; } catch (e) {}
+  return ['localhost', '127.0.0.1'].includes(location.hostname) ? 'panel' : 'celu';
+})();
+async function revisarRickuel() {
+  try {
+    const e = await (await fetch(`/api/rickuel?pantalla=${pantallaRickuel}`)).json();
+    if (e.pendientes?.[pantallaRickuel] && abierta !== rickuel) { ultimoToque = Date.now(); abrirRickuel(); }
+  } catch (e) {}
+}
+setInterval(revisarRickuel, 4000);
+let presenciaRickuel = 0;
+addEventListener('pointerdown', () => {
+  if (Date.now() - presenciaRickuel < 20000) return;
+  presenciaRickuel = Date.now();
+  fetch('/api/rickuel/presencia', { method: 'POST', body: JSON.stringify({ pantalla: pantallaRickuel }) }).catch(() => {});
+}, true);
 
 // ---- ventana: clima en casa y en el trabajo ----
 const clima = document.createElement('section');
