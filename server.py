@@ -1086,6 +1086,8 @@ LOCK_PRESENCIA = threading.Lock()
 VISTA = {}     # pantalla -> última consulta
 TOCADA = {}    # pantalla -> último toque o mensaje
 AVISOS = []    # {"id", "texto", "destino", "hora"}
+CHARLA = []    # lo último que Nahuel le dijo a Rickuel y qué le contestó: el vigía lo usa para seguir la conversación
+CHARLA_VENCE_SEG = 30 * 60
 
 
 def leer_ajustes_rickuel():
@@ -1129,10 +1131,17 @@ def donde_hablar(ahora=None):
     return "panel"
 
 
+def anotar_charla(pregunta, respuesta):
+    with LOCK_PRESENCIA:
+        CHARLA.append({"hora": time.time(), "nahuel": str(pregunta)[:300], "rickuel": str(respuesta)[:300]})
+        del CHARLA[:-6]
+
+
 def estado_rickuel():
     ahora = time.time()
     with LOCK_PRESENCIA:
         return {**leer_ajustes_rickuel(), "habla_en": donde_hablar(ahora),
+                "charla": [c for c in CHARLA if ahora - c["hora"] < CHARLA_VENCE_SEG],
                 "conectadas": [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG],
                 "pendientes": {p: sum(a["destino"] == p for a in AVISOS) for p in PANTALLAS}}
 
@@ -1283,6 +1292,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/cerebro":
             try:
                 texto, acciones, cerebro, crudo, charla = pensar(cuerpo["sistema"], cuerpo["mensajes"])
+                pregunta = (cuerpo["mensajes"] or [{}])[-1].get("content", "")
+                anotar_charla(pregunta, texto)
                 return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo, "charla": charla})
             except Exception as e:   # la cara muestra el error en vez de quedarse colgada
                 return self._json({"error": {"message": str(e)}}, 500)

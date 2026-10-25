@@ -4,8 +4,9 @@ Corre en la PC de escritorio, al lado de Ollama. Todo queda en casa:
   1. Cada unos minutos saca UN cuadro de la cámara (RTSP de la Imou), solo si en el panel está prendido «Rickuel observa».
   2. Se lo pasa al modelo de Ollama que entiende imágenes (gemma3:12b), que lo describe en una frase. La imagen no se
      guarda: a bitacora.jsonl va solo esa frase.
-  3. Con lo último de la bitácora decide si vale un comentario (con límites: uno cada tanto, pocos por día, nada de noche).
-     Si sí, el modelo lo escribe como Rick y se lo manda al panel (/api/rickuel/aviso), que lo dice donde estés.
+  3. Con lo último de la bitácora y de la charla decide si te dice algo, y el modelo lo escribe como Rick y se lo manda
+     al panel (/api/rickuel/aviso), que lo dice donde estés. Es charlatán: si le contestás sigue la conversación
+     seguido; si lo ignorás, espera cada vez más. De noche no habla, y con «Rickuel observa» apagado no mira.
 Configuración en vigia.json (copialo de vigia.example.json; tiene la clave de la cámara y está en el .gitignore).
   python vigia.py            # mira y comenta
   python vigia.py --una-vez  # un solo cuadro, para probar; muestra lo que entendió y no comenta
@@ -32,9 +33,10 @@ BASE = {
     "panel": "http://192.168.0.9:8080",
     "ollama": "http://localhost:11434",
     "modelo": "gemma3:12b",
-    "cada_minutos": 4,              # cada cuánto mira
-    "minutos_entre_comentarios": 45,
-    "comentarios_por_dia": 6,
+    "cada_minutos": 1,               # cada cuánto mira
+    "minutos_entre_comentarios": 4,  # el ritmo normal
+    "minutos_si_contestas": 2,       # si le venís contestando, sigue la charla más seguido
+    "minutos_maximo": 40,            # si lo ignorás, cada comentario sin respuesta duplica la espera hasta esto
     "silencio": ["00:00", "08:00"],  # de noche no comenta (sí sigue anotando)
 }
 BITACORA = AQUI / "bitacora.jsonl"
@@ -49,11 +51,11 @@ COMENTAR = """Sos Rickuel, un científico genio, cínico y sarcástico inspirado
 de Nahuel y lo ve por una cámara. Lo bardeás con humor ácido y desprecio cariñoso, a veces tartamudeás
 ("es-es-escuchame") y metés algún "uuurp". Nunca lo llamás Morty. Nada de crueldad real.
 Hablás en español rioplatense. Lo que digas se lee en voz alta: 1 o 2 oraciones, sin listas, markdown ni emojis.
-Te paso lo que viste las últimas veces (de más viejo a más nuevo). Decidí si vale la pena decirle algo AHORA: algo
-que lleva mucho rato, algo nuevo o gracioso, o algo que contradice lo que dijo antes. Si no hay nada interesante,
-contestá exactamente NADA. Si comentás, empezá con tu emoción entre corchetes, una de:
-[neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
-No repitas lo que ya le dijiste."""
+Te paso lo que viste las últimas veces (de más viejo a más nuevo) y, si hay, la charla reciente con él.
+Te encanta meterte en lo que hace: hablale. Comentá lo que está haciendo, cargalo, preguntale algo, o seguí la charla
+si te contestó (respondé a lo que te dijo). Solo si de verdad no hay nada que decir, contestá exactamente NADA.
+Empezá con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
+No repitas lo que ya le dijiste: buscá algo nuevo."""
 
 
 def leer_config():
@@ -117,23 +119,34 @@ def en_silencio(conf, ahora):
     return desde <= hora < hasta if desde <= hasta else (hora >= desde or hora < hasta)
 
 
-def puede_comentar(conf, ahora, recientes):
+def espera_minutos(conf, dichos, charla):
+    """Cuánto esperar desde el último comentario: poco si le venís contestando, el doble por cada uno que ignoraste."""
+    ultima_respuesta = max((c["hora"] for c in charla), default=0)
+    ignorados = sum(datetime.fromisoformat(e["hora"]).timestamp() > ultima_respuesta for e in dichos[-6:])
+    if ignorados == 0:
+        return conf["minutos_si_contestas"]
+    return min(conf["minutos_maximo"], conf["minutos_entre_comentarios"] * 2 ** (ignorados - 1))
+
+
+def puede_comentar(conf, ahora, recientes, charla):
     if en_silencio(conf, ahora) or not recientes or not recientes[-1].get("hay_persona"):
         return False
-    hoy = ahora.strftime("%Y-%m-%d")
-    dichos = [e for e in ultimas(500) if e.get("comentario")]
-    if sum(e["hora"].startswith(hoy) for e in dichos) >= conf["comentarios_por_dia"]:
+    if charla and ahora.timestamp() - charla[-1]["hora"] < 60:   # está hablando con Rickuel: no interrumpir
         return False
-    if dichos:
-        ultimo = datetime.fromisoformat(dichos[-1]["hora"])
-        if (ahora - ultimo).total_seconds() < conf["minutos_entre_comentarios"] * 60:
-            return False
-    return random.random() < 0.6   # un poco de azar, para que no sea un reloj
+    dichos = [e for e in ultimas(200) if e.get("comentario")]
+    if not dichos:
+        return True
+    pasaron = ahora.timestamp() - datetime.fromisoformat(dichos[-1]["hora"]).timestamp()
+    # un poco de azar (hasta 1 minuto más), para que no sea un reloj
+    return pasaron >= espera_minutos(conf, dichos, charla) * 60 + random.uniform(0, 60)
 
 
-def pensar_comentario(conf, recientes):
+def pensar_comentario(conf, recientes, charla):
     vistas = "\n".join(f'{e["hora"][11:16]} {e["que_pasa"]}' + (f' (le dijiste: {e["comentario"]})' if e.get("comentario") else "")
                        for e in recientes)
+    if charla:
+        vistas += "\n\nCharla reciente:\n" + "\n".join(
+            f'{datetime.fromtimestamp(c["hora"]).strftime("%H:%M")} Nahuel: {c["nahuel"]} / vos: {c["rickuel"]}' for c in charla)
     r = pedir(conf["ollama"].rstrip("/") + "/api/chat", {
         "model": conf["modelo"], "stream": False, "keep_alive": "30m", "options": {"num_predict": 120},
         "messages": [{"role": "system", "content": COMENTAR}, {"role": "user", "content": vistas}],
@@ -144,7 +157,8 @@ def pensar_comentario(conf, recientes):
 
 def una_vuelta(conf, probar=False):
     try:
-        if not probar and not pedir(conf["panel"].rstrip("/") + "/api/rickuel", espera=15).get("observa", True):
+        estado = {} if probar else pedir(conf["panel"].rstrip("/") + "/api/rickuel", espera=15)
+        if not estado.get("observa", True):
             return "apagado desde el panel"
     except Exception as e:   # el panel apagado no frena al vigía, pero sin panel no hay a quién hablarle
         return f"no encuentro el panel ({e})"
@@ -154,8 +168,9 @@ def una_vuelta(conf, probar=False):
     if probar:
         return f"vi: {que} (persona: {'sí' if hay else 'no'})"
     recientes = ultimas() + [entrada]
-    if puede_comentar(conf, ahora, recientes):
-        comentario = pensar_comentario(conf, recientes)
+    charla = estado.get("charla", [])
+    if puede_comentar(conf, ahora, recientes, charla):
+        comentario = pensar_comentario(conf, recientes, charla)
         if comentario:
             pedir(conf["panel"].rstrip("/") + "/api/rickuel/aviso", {"texto": comentario}, espera=15)
             entrada["comentario"] = comentario

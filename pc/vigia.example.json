@@ -2,9 +2,5 @@
   "camara": "rtsp://admin:CODIGO@192.168.0.108:554/cam/realmonitor?channel=1&subtype=1",
   "panel": "http://192.168.0.9:8080",
   "ollama": "http://localhost:11434",
-  "modelo": "gemma3:12b",
-  "cada_minutos": 4,
-  "minutos_entre_comentarios": 45,
-  "comentarios_por_dia": 6,
-  "silencio": ["00:00", "08:00"]
+  "modelo": "gemma3:12b"
 }
