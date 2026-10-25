@@ -3,7 +3,8 @@
 Una sola voz para todos lados: el panel (celu, PC, notebook) le pide el audio por POST /hablar {"texto": "..."}
 (ver "voz_url" en rickuel.json) y devuelve un WAV.
 - Busca solo el modelo en la carpeta "compañero de escritorio" de OneDrive (voz-rick/probar/modelo), así cuando
-  entrenás una voz nueva y la pegás ahí, alcanza con reiniciar esto. También se puede pasar --modelo.
+  entrenás una voz nueva y la pegás ahí, alcanza con reiniciar esto. Si no está, lo busca al lado de este archivo
+  (es_MX-rick-medium.onnx + .onnx.json). También se puede pasar --modelo.
 - Los "uuurp" suenan como eructo (voz-rick/eructo*.wav si hay; si no, uno sintético) y no lee lo que va entre asteriscos.
 - Menos ruido de Piper que el que trae el modelo: la voz sale más limpia (--ruido / --ruido-w para ajustar).
 Se corre con el Python que tenga Piper instalado (piper-tts):
@@ -180,6 +181,9 @@ if __name__ == "__main__":
     RUIDO, RUIDO_W = a.ruido, a.ruido_w
     VOZ_RICK = buscar_voz_rick()
     modelo = Path(a.modelo) if a.modelo else (VOZ_RICK / "probar/modelo/es_MX-rick-medium.onnx" if VOZ_RICK else None)
+    junto = Path(__file__).resolve().parent / "es_MX-rick-medium.onnx"   # o pegado al lado de este archivo
+    if (not modelo or not modelo.exists()) and junto.exists():
+        modelo = junto
     if not modelo or not modelo.exists():
         raise SystemExit("No encuentro el modelo de voz. Pasalo con --modelo RUTA/es_MX-rick-medium.onnx")
     if a.modelo and not VOZ_RICK:
