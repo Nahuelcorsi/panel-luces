@@ -96,6 +96,34 @@ class LuzTuya:
         self.ultimo_rapido = 0
         self.pendiente, self.mandando = None, False
         self.ultimo_estado = None
+        self.buscando, self.ultima_busqueda = False, 0
+
+    def reubicar(self):
+        """Si la luz no contesta, puede que el router le haya dado otra dirección (IP), por ejemplo después de un
+        corte de luz. Se la busca en la red (las luces avisan dónde están) y, si cambió, se usa y se guarda."""
+        if self.buscando or time.time() - self.ultima_busqueda < 60:
+            return
+        self.buscando, self.ultima_busqueda = True, time.time()
+        threading.Thread(target=self._reubicar, daemon=True).start()
+
+    def _reubicar(self):
+        try:
+            ip = (tinytuya.find_device(self.id) or {}).get("ip")
+            if not ip or ip == self.datos.get("ip"):
+                return
+            anotar(f"{self.nombre}: cambió de dirección, {self.datos.get('ip')} -> {ip}")
+            with self.lock, self.lock_rapido:
+                self.datos["ip"] = ip
+                for dev in (self.dev, self.dev_rapido):
+                    if dev:
+                        dev.close()
+                self.dev = self.dev_rapido = None
+                self.ultimo_fallo = 0
+            guardar_ip(self.id, ip)
+        except Exception as e:
+            anotar(f"{self.nombre}: no pude buscarla en la red ({e})")
+        finally:
+            self.buscando = False
 
     def rapido(self, color, brillo):
         """Cambio de color sin esperar respuesta (~10 ms en vez de ~400): para efectos y música.
@@ -168,12 +196,14 @@ class LuzTuya:
             with self.lock:
                 e = self._conectar().state()
             if "Error" in e:
+                self.reubicar()
                 return {**base, "online": False}
             self.brillo = brillo_real(e)
             self.ultimo_estado = {**base, "online": True, "encendida": bool(e.get("is_on")),
                                   "brillo": self.brillo, "color": color_hex(e)}
             return self.ultimo_estado
         except Exception:
+            self.reubicar()
             return {**base, "online": False}
 
     def aplicar(self, cambios):
@@ -193,6 +223,23 @@ class LuzTuya:
                 self.brillo = brillo
             if "encendida" in cambios:
                 (dev.turn_on if cambios["encendida"] else dev.turn_off)()
+
+
+LOCK_DEVICES = threading.Lock()
+
+
+def guardar_ip(ident, ip):
+    """Anota la dirección nueva en devices.json, así al reiniciar el panel ya la encuentra."""
+    ruta = os.path.join(BASE, "devices.json")
+    with LOCK_DEVICES:
+        with open(ruta, encoding="utf-8") as f:
+            lista = json.load(f)
+        for d in lista:
+            if d.get("id") == ident:
+                d["ip"] = ip
+        with open(ruta + ".nuevo", "w", encoding="utf-8") as f:
+            json.dump(lista, f, ensure_ascii=False, indent=4)
+        os.replace(ruta + ".nuevo", ruta)
 
 
 def cargar_luces():
