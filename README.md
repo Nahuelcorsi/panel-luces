@@ -87,7 +87,7 @@ Abrir `http://localhost:8080`.
 5. Para que arranque solo al prender el celular, usar [Termux:Boot](https://github.com/termux/termux-boot) con un script en `~/.termux/boot/` que ejecute `iniciar.sh`.
 
 ## El amigo: charlar y pedirle cosas de la casa
-El mosaico del amigo (por ahora «Compañero») abre su pantalla: una pantallita con **dos ojitos** que parpadean, siguen el dedo o el mouse, cambian según la emoción y rebotan cuando habla (`web/amigo/`). Se le habla o escribe, y además de charlar puede **manejar las luces y las escenas**: el servidor le pasa el estado de la casa (luces, clima, hora de salida, rutinas) y ejecuta las acciones que él pida. Solo acepta las de una lista cerrada (prender, apagar, brillo, color, blanco, escenas); las rutinas no las toca.
+El mosaico del amigo («Licenciado Capsulito») abre su pantalla: una pantallita con **dos ojitos** que parpadean, siguen el dedo o el mouse, cambian según la emoción y rebotan cuando habla (`web/amigo/`). Se le habla o escribe, y además de charlar puede **manejar las luces y las escenas**: el servidor le pasa el estado de la casa (luces, clima, hora de salida, rutinas) y ejecuta las acciones que él pida. Solo acepta las de una lista cerrada (prender, apagar, brillo, color, blanco, escenas); las rutinas no las toca.
 
 Se configura en `amigo.json` (copialo de `amigo.example.json`; está en el `.gitignore`). `nombre` es cómo se llama (sale en el mosaico, en su pantalla y en la botonera). El cerebro:
 1. **La PC de la casa con Ollama** (`local_url` y `local_modelo`, por ejemplo `gemma3:12b`), si está prendida.

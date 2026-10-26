@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 
 ## [Sin publicar]
 ### Cambiado
-- **Rickuel se reemplaza por un amigo nuevo, de cero.** Su cara ahora son dos ojitos celestes en una pantallita (parpadean, siguen el dedo, cambian con la emoción y rebotan al hablar), con personalidad nueva (simpático, curioso y juguetón) y nombre configurable en `amigo.json` («Compañero» por defecto). La página pasa a `web/amigo/`, la API a `/api/amigo`, y la configuración, la memoria, las charlas y las calificaciones a archivos nuevos (`amigo.json`, `amigo-memoria.json`, `amigo-charlas.jsonl`, `amigo-calificaciones.json`, `amigo-ajustes.json`): arranca sin recuerdos.
+- **Rickuel se reemplaza por un amigo nuevo, de cero.** Su cara ahora son dos ojitos celestes en una pantallita (parpadean, siguen el dedo, cambian con la emoción y rebotan al hablar), se llama Licenciado Capsulito (configurable en `amigo.json`) y tiene personalidad nueva, tierna y enérgica. La página pasa a `web/amigo/`, la API a `/api/amigo`, y la configuración, la memoria, las charlas y las calificaciones a archivos nuevos (`amigo.json`, `amigo-memoria.json`, `amigo-charlas.jsonl`, `amigo-calificaciones.json`, `amigo-ajustes.json`): arranca sin recuerdos.
 - Voz de dibujito: en el navegador sale aguda y rápida; en la PC, `pc/voz_pc.py` usa la voz de Piper que haya en `pc/voces/` y la sube de tono con `--tono`. `pc/instalar-voz-pc.py` baja una voz provisoria (`es_AR-daniela-high`) hasta que haya una entrenada.
 - Con la PC apagada, `/hablar` se da cuenta en 2 segundos (antes esperaba 30) y la pantalla pasa enseguida a la voz del navegador.
 - Botonera: la pestaña «Amigo» dibuja los mismos ojitos (sin imágenes) y usa la personalidad y el nombre nuevos.

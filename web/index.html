@@ -314,7 +314,7 @@
       </button>
       <button class="mosaico ancho" id="m-amigo">
         <div class="m-icono">🤖</div>
-        <div><div class="m-titulo" style="margin:0" id="m-amigo-nombre">Compañero</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
+        <div><div class="m-titulo" style="margin:0" id="m-amigo-nombre">Licenciado Capsulito</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
       </button>
       <button class="mosaico ancho" id="m-noche">
         <div class="m-icono">🌙</div>
@@ -1025,7 +1025,7 @@ setInterval(pintarViaje, 30000);   // para que "Salí en X min" avance solo
 const amigo = document.createElement('section');
 amigo.className = 'luz amigo';
 amigo.dataset.ambiente = '#122033';
-amigo.innerHTML = '<iframe title="Compañero" allow="microphone; autoplay"></iframe>';
+amigo.innerHTML = '<iframe title="Licenciado Capsulito" allow="microphone; autoplay"></iframe>';
 detalle.appendChild(amigo);
 fetch('/salud').then(r => r.json()).then(d => { if (d.nombre) document.getElementById('m-amigo-nombre').textContent = d.nombre; }).catch(() => {});
 function abrirAmigo() {

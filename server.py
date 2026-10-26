@@ -708,7 +708,7 @@ def probar(modo, ids):
 # amigo.json (en .gitignore) guarda la IP de la PC, la clave de Gemini y el nombre; ver amigo.example.json.
 
 RUTA_AMIGO = os.path.join(BASE, "amigo.json")
-NOMBRE_AMIGO = "Compañero"   # si amigo.json no trae "nombre"
+NOMBRE_AMIGO = "Licenciado Capsulito"   # si amigo.json no trae "nombre"
 RUTA_CHARLAS = os.path.join(BASE, "amigo-charlas-demo.jsonl" if DEMO else "amigo-charlas.jsonl")
 LOCK_CHARLAS = threading.Lock()
 MAX_ACCIONES = 6

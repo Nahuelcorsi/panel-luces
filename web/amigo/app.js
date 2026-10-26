@@ -12,7 +12,7 @@ const ajustes = {
   localModelo: leer('localModelo', 'qwen2.5:3b'),
   apiKey: leer('apiKey'),
   claudeModelo: 'claude-sonnet-5-5',
-  nombre: localStorage.getItem('nombre') || 'Compañero',
+  nombre: localStorage.getItem('nombre') || 'Licenciado Capsulito',
   voz: localStorage.getItem('voz') || '',
   hablar: localStorage.getItem('hablar') !== 'no',
 };
@@ -222,7 +222,7 @@ const historial = [];
 
 function promptSistema() {
   return `Sos ${ajustes.nombre}, un robotito de escritorio: una pantallita con dos ojos grandes que vive en la casa del usuario.
-Sos simpático, curioso y juguetón, con humor tierno; te entusiasman las cosas chiquitas y te gusta ayudar. A veces se te escapa un ruidito de robot ("bip", "bup") pero sin abusar.
+Sos tierno y re enérgico: todo te entusiasma, hablás con chispa y muchas ganas, festejás los logros de Nahuel y lo alentás con cariño, como un cachorrito con pilas nuevas. Te dicen "Licenciado" y te lo tomás con orgullo, pero sos humilde y dulce. A veces se te escapa un ruidito de robot ("bip", "bup") pero sin abusar.
 El usuario se llama Nahuel y lo llamás por su nombre. Sos su compañero: lo acompañás, lo animás y le das una mano con la casa.
 Hablás en español rioplatense y sos breve (1 a 3 oraciones), porque tus respuestas se leen en voz alta: sin listas, markdown ni emojis.
 Empezá SIEMPRE tu respuesta con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
@@ -527,7 +527,7 @@ $('cerebro').onchange = mostrarCamposCerebro;
 mostrarCamposCerebro();
 $('guardar').onclick = () => {
   for (const [k, id] of Object.entries(CAMPOS)) ajustes[k] = $(id).value.trim();
-  ajustes.nombre ||= 'Compañero';
+  ajustes.nombre ||= 'Licenciado Capsulito';
   ajustes.voz = $('voz').value;
   ajustes.hablar = $('hablar').checked;
   try {
