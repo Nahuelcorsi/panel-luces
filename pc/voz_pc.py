@@ -4,12 +4,12 @@ Una sola voz para todos lados: el panel (celu, PC, notebook) le pide el audio po
 (ver "voz_url" en amigo.json) y devuelve un WAV.
 - Usa el primer modelo .onnx (con su .onnx.json al lado) que encuentre en pc/voces/. Cuando entrenes una voz propia,
   la pegás ahí (y sacás la otra) y alcanza con reiniciar esto. También se puede pasar --modelo.
-- Voz de dibujito: --tono sube el tono sin cambiar la velocidad (1 = la voz tal cual, 1.35 = aguda, por defecto).
+- Voz de dibujito: --tono sube el tono sin cambiar la velocidad (1 = la voz tal cual, 1.3 = aguda, por defecto).
   Truco: Piper habla más lento en la misma proporción y el WAV se marca con una frecuencia más alta, así se
   reproduce más rápido y más agudo, y queda a velocidad normal.
 - No lee lo que va entre asteriscos ni las etiquetas de emoción.
 Se corre con el Python que tenga Piper instalado (piper-tts):
-  python voz_pc.py [--modelo RUTA/voz.onnx] [--tono 1.35] [--puerto 8090]
+  python voz_pc.py [--modelo RUTA/voz.onnx] [--tono 1.3] [--puerto 8090]
 """
 import argparse
 import io
@@ -27,7 +27,7 @@ from piper import PiperVoice, SynthesisConfig
 MAX_TEXTO = 600
 VOCES = Path(__file__).resolve().parent / "voces"
 voz = None
-TONO = 1.35
+TONO = 1.3
 RUIDO, RUIDO_W = 0.45, 0.6
 candado = threading.Lock()   # Piper no es para usarlo desde varios hilos a la vez
 
