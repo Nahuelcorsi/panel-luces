@@ -1,10 +1,10 @@
-"""Rickuel en la PC: abre la pantalla de Rickuel del panel en el navegador de la PC, con su micrófono y sus parlantes.
+"""El amigo en la PC: abre la pantalla del amigo del panel en el navegador de la PC, con su micrófono y sus parlantes.
 
 El navegador solo deja usar el micrófono en páginas seguras (https o localhost), y el panel es http://<celular>:8080.
 Por eso este programa hace de puente: sirve en http://localhost:8070 todo lo que le pide al panel, y la página
-se abre con ?pantalla=pc para que el panel sepa que es la PC (y Rickuel hable por acá cuando la estés usando).
+se abre con ?pantalla=pc para que el panel sepa que es la PC (y el amigo hable por acá cuando la estés usando).
 Solo usa la biblioteca estándar:
-  python rickuel_pc.py --panel http://192.168.0.20:8080 [--puerto 8070] [--sin-abrir]
+  python amigo_pc.py --panel http://192.168.0.20:8080 [--puerto 8070] [--sin-abrir]
 """
 import argparse
 import urllib.error
@@ -58,13 +58,13 @@ if __name__ == "__main__":
     p.add_argument("--sin-abrir", action="store_true", help="no abrir el navegador")
     a = p.parse_args()
     PANEL = a.panel.rstrip("/")
-    url = f"http://localhost:{a.puerto}/rickuel/?panel&pantalla=pc"
+    url = f"http://localhost:{a.puerto}/amigo/?panel&pantalla=pc"
     try:
         servidor = Servidor(("127.0.0.1", a.puerto), Puente)   # solo para esta PC
     except OSError:   # ya estaba abierto: alcanza con abrir la página
         webbrowser.open(url)
         raise SystemExit
-    print(f"Rickuel en la PC: {url} (panel: {PANEL})")
+    print(f"El amigo en la PC: {url} (panel: {PANEL})")
     if not a.sin_abrir:
         webbrowser.open(url)
     servidor.serve_forever()

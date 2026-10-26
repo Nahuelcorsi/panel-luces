@@ -238,10 +238,10 @@
   .probar:active { background: rgba(255, 255, 255, .25); }
   .explica { color: var(--suave); font-size: 14px; text-align: center; }
 
-  /* ---- Rickuel: la pantalla es la página de Rickuel (web/rickuel/) dentro de un marco ---- */
-  .luz.rickuel { padding: 0; }
-  .luz.rickuel > iframe { max-width: none; width: 100%; height: 100%; border: 0; background: transparent; }
-  body.en-rickuel #microfono { display: none; }   /* Rickuel tiene su propio micrófono */
+  /* ---- El amigo: la pantalla es su página (web/amigo/) dentro de un marco ---- */
+  .luz.amigo { padding: 0; }
+  .luz.amigo > iframe { max-width: none; width: 100%; height: 100%; border: 0; background: transparent; }
+  body.en-amigo #microfono { display: none; }   /* el amigo tiene su propio micrófono */
 
   /* ---- Hablarle al panel ---- */
   #microfono { position: fixed; z-index: 5; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%;
@@ -312,9 +312,9 @@
         <div class="m-icono">🌡️</div>
         <div class="filas"></div>
       </button>
-      <button class="mosaico ancho" id="m-rickuel">
-        <div class="m-icono">🧪</div>
-        <div><div class="m-titulo" style="margin:0">Rickuel</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
+      <button class="mosaico ancho" id="m-amigo">
+        <div class="m-icono">🤖</div>
+        <div><div class="m-titulo" style="margin:0" id="m-amigo-nombre">Compañero</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
       </button>
       <button class="mosaico ancho" id="m-noche">
         <div class="m-icono">🌙</div>
@@ -424,7 +424,7 @@ function mostrar(s) {
   abierta = s;
   detalle.classList.remove('oculta');
   inicio.classList.add('oculta');
-  document.body.classList.toggle('en-rickuel', s.classList.contains('rickuel'));
+  document.body.classList.toggle('en-amigo', s.classList.contains('amigo'));
   const anterior = pila[pila.length - 1];
   document.getElementById('volver').lastChild.textContent = anterior ? anterior.querySelector('.nombre').textContent : 'Inicio';
   pintarAmbiente();
@@ -440,7 +440,7 @@ function cerrar() {   // vuelve una pantalla
   const anterior = pila.pop();
   if (anterior) return mostrar(anterior);
   abierta = null;
-  document.body.classList.remove('en-rickuel');
+  document.body.classList.remove('en-amigo');
   detalle.classList.add('oculta');
   inicio.classList.remove('oculta');
   pintarAmbiente();
@@ -1021,45 +1021,46 @@ refrescarViaje();
 setInterval(refrescarViaje, 2 * 60000);
 setInterval(pintarViaje, 30000);   // para que "Salí en X min" avance solo
 
-// ---- ventana: Rickuel (la página de web/rickuel/ en un marco; se carga recién al abrirla) ----
-const rickuel = document.createElement('section');
-rickuel.className = 'luz rickuel';
-rickuel.dataset.ambiente = '#1b3a22';
-rickuel.innerHTML = '<iframe title="Rickuel" allow="microphone; autoplay"></iframe>';
-detalle.appendChild(rickuel);
-function abrirRickuel() {
-  const marco = rickuel.querySelector('iframe');
+// ---- ventana: el amigo (la página de web/amigo/ en un marco; se carga recién al abrirla) ----
+const amigo = document.createElement('section');
+amigo.className = 'luz amigo';
+amigo.dataset.ambiente = '#122033';
+amigo.innerHTML = '<iframe title="Compañero" allow="microphone; autoplay"></iframe>';
+detalle.appendChild(amigo);
+fetch('/salud').then(r => r.json()).then(d => { if (d.nombre) document.getElementById('m-amigo-nombre').textContent = d.nombre; }).catch(() => {});
+function abrirAmigo() {
+  const marco = amigo.querySelector('iframe');
   if (!marco.getAttribute('src')) {
-    marco.src = '/rickuel/?panel';
+    marco.src = '/amigo/?panel';
     // Lo que se toca o escribe dentro del marco no llega a esta página: se avisa a mano para que no vuelva solo al inicio
     marco.onload = () => {
       try { for (const ev of ['pointerdown', 'keydown']) marco.contentWindow.addEventListener(ev, () => { ultimoToque = Date.now(); }, true); } catch (e) {}
     };
   }
-  if (abierta !== rickuel) abrir(rickuel);
+  if (abierta !== amigo) abrir(amigo);
 }
-document.getElementById('m-rickuel').onclick = abrirRickuel;
+document.getElementById('m-amigo').onclick = abrirAmigo;
 
-// Rickuel también habla sin que le pregunten (ver /api/rickuel/aviso en server.py) y lo hace por la pantalla que
-// estás usando. Esta página cuenta como pantalla abierta y, si hay algo para decir acá, abre a Rickuel.
-const pantallaRickuel = (() => {
+// El amigo también habla sin que le pregunten (ver /api/amigo/aviso en server.py) y lo hace por la pantalla que
+// estás usando. Esta página cuenta como pantalla abierta y, si hay algo para decir acá, lo abre.
+const pantallaAmigo = (() => {
   const pedida = new URLSearchParams(location.search).get('pantalla');
   if (['panel', 'pc', 'celu'].includes(pedida)) { try { localStorage.setItem('pantalla', pedida); } catch (e) {} return pedida; }
   try { const g = localStorage.getItem('pantalla'); if (['panel', 'pc', 'celu'].includes(g)) return g; } catch (e) {}
   return ['localhost', '127.0.0.1'].includes(location.hostname) ? 'panel' : 'celu';
 })();
-async function revisarRickuel() {
+async function revisarAmigo() {
   try {
-    const e = await (await fetch(`/api/rickuel?pantalla=${pantallaRickuel}`)).json();
-    if (e.pendientes?.[pantallaRickuel] && abierta !== rickuel) { ultimoToque = Date.now(); abrirRickuel(); }
+    const e = await (await fetch(`/api/amigo?pantalla=${pantallaAmigo}`)).json();
+    if (e.pendientes?.[pantallaAmigo] && abierta !== amigo) { ultimoToque = Date.now(); abrirAmigo(); }
   } catch (e) {}
 }
-setInterval(revisarRickuel, 4000);
-let presenciaRickuel = 0;
+setInterval(revisarAmigo, 4000);
+let presenciaAmigo = 0;
 addEventListener('pointerdown', () => {
-  if (Date.now() - presenciaRickuel < 20000) return;
-  presenciaRickuel = Date.now();
-  fetch('/api/rickuel/presencia', { method: 'POST', body: JSON.stringify({ pantalla: pantallaRickuel }) }).catch(() => {});
+  if (Date.now() - presenciaAmigo < 20000) return;
+  presenciaAmigo = Date.now();
+  fetch('/api/amigo/presencia', { method: 'POST', body: JSON.stringify({ pantalla: pantallaAmigo }) }).catch(() => {});
 }, true);
 
 // ---- ventana: clima en casa y en el trabajo ----

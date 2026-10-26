@@ -12,12 +12,13 @@ const ajustes = {
   localModelo: leer('localModelo', 'qwen2.5:3b'),
   apiKey: leer('apiKey'),
   claudeModelo: 'claude-sonnet-5-5',
-  nombre: localStorage.getItem('nombre') || 'Rickuel',
+  nombre: localStorage.getItem('nombre') || 'Compañero',
   voz: localStorage.getItem('voz') || '',
   hablar: localStorage.getItem('hablar') !== 'no',
 };
 
-// ===== Rickuel: capas de tu imagen =====
+// ===== La cara: dos ojitos =====
+// La emoción es una clase en el <svg> (style.css mueve los párpados); acá van el parpadeo, la mirada y el rebote al hablar.
 const EMOCIONES = ['neutral', 'feliz', 'triste', 'sorprendido', 'enojado', 'pensando'];
 let emocion = 'feliz';
 function ponerCara(e) {
@@ -33,26 +34,22 @@ function ponerCara(e) {
   if (Math.random() < .2) setTimeout(() => { cara.classList.add('parpadeo'); setTimeout(() => cara.classList.remove('parpadeo'), 140); }, 300);
   setTimeout(parpadear, 2500 + Math.random() * 3500);
 })();
-// apertura: 0 = cerrada, 1 = bien abierta
+// No tiene boca: al hablar los ojos rebotan con la voz. apertura: 0 = quietos, 1 = salto más grande
 function abrirBoca(apertura) {
   cara.classList.add('hablando');
-  const fondo = 640 + apertura * 58, ancho = 60 - apertura * 8;
-  const d = `M${512 - ancho} 630 Q512 ${fondo} ${512 + ancho} 630 Z`;
-  document.getElementById('boca-abierta').setAttribute('d', d);
-  document.getElementById('boca-abierta-clip').setAttribute('d', d);
-  document.getElementById('lengua').setAttribute('cy', 630 + (fondo - 630) * .62);
+  $('ojos').style.transform = `translateY(${-apertura * 9}px) scale(1, ${1 + apertura * .1})`;
 }
-function cerrarBoca() { cara.classList.remove('hablando'); }
-// Las pupilas siguen el puntero (y miran arriba cuando piensa)
+function cerrarBoca() { cara.classList.remove('hablando'); $('ojos').style.transform = ''; }
+// Los ojos siguen el puntero (y miran arriba a un costado cuando piensa)
 let mirada = [0, 0];
 function moverPupilas() {
-  const [x, y] = emocion === 'pensando' ? [14, -16] : mirada;
-  for (const p of cara.querySelectorAll('.pupila')) p.style.transform = `translate(${x}px, ${y}px)`;
+  const [x, y] = emocion === 'pensando' ? [16, -14] : mirada;
+  $('mirada').style.transform = `translate(${x}px, ${y}px)`;
 }
 window.addEventListener('pointermove', (e) => {
   const r = cara.getBoundingClientRect();
-  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height * .44);
-  const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 350) * 18;
+  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 350) * 22;
   mirada = [dx / d * k, dy / d * k];
   moverPupilas();
 });
@@ -62,7 +59,7 @@ function moverBoca(si) {
   clearInterval(bocaTimer);
   if (!si) return cerrarBoca();
   cara.classList.add('hablando');
-  bocaTimer = setInterval(() => abrirBoca(Math.random() * 0.8), 110);
+  bocaTimer = setInterval(() => abrirBoca(Math.random() * 0.8), 130);
 }
 
 // ===== Modo Raspberry Pi =====
@@ -70,11 +67,15 @@ function moverBoca(si) {
 let modoPi = false, piTieneCerebro = false;
 // Modo panel: la página la sirve el panel de casa (panel-luces). Solo el cerebro pasa por el servidor, que además
 // maneja las luces; la voz y el oído siguen siendo los del navegador.
-let modoPanel = false, vozDePc = false;   // vozDePc: el panel tiene la voz de Rick (Piper en la PC)
+let modoPanel = false, vozDePc = false;   // vozDePc: el panel tiene la voz del amigo (Piper en la PC)
 const listoPi = fetch('/salud')
   .then(r => r.ok ? r.json() : null)
   .then(d => {
-    if (d?.panel) { modoPanel = true; piTieneCerebro = d.tieneCerebro; vozDePc = !!d.tieneVoz; return; }
+    if (d?.panel) {
+      modoPanel = true; piTieneCerebro = d.tieneCerebro; vozDePc = !!d.tieneVoz;
+      if (d.nombre) ajustes.nombre = d.nombre;   // en el panel el nombre sale de amigo.json
+      return;
+    }
     if (!d?.pi) return;
     modoPi = true; piTieneCerebro = d.tieneCerebro;
     $('mic').disabled = false;
@@ -177,7 +178,7 @@ cargarVoces();
 function decir(texto) {
   if (!ajustes.hablar) return;
   if (modoPi) return decirEnPi(texto).catch(err => mostrar(`No pude hablar: ${err.message}`, 'triste'));
-  if (vozDePc) {   // la voz de Rick; si la PC está apagada, cae a la voz del navegador
+  if (vozDePc) {   // la voz de Piper en la PC; si la PC está apagada, cae a la voz del navegador
     return decirEnPi(texto).catch(() => { vozDePc = false; decir(texto); setTimeout(() => { vozDePc = true; }, 60000); });
   }
   speechSynthesis.cancel();
@@ -185,6 +186,8 @@ function decir(texto) {
   const v = speechSynthesis.getVoices().find(v => v.name === ajustes.voz);
   if (v) u.voice = v;
   u.lang = v?.lang || 'es-AR';
+  u.pitch = 1.8;   // aguda y rápida: voz de dibujito
+  u.rate = 1.15;
   u.onstart = () => moverBoca(true);
   u.onend = u.onerror = () => moverBoca(false);
   speechSynthesis.speak(u);
@@ -218,9 +221,9 @@ $('mic').onclick = () => {
 const historial = [];
 
 function promptSistema() {
-  return `Sos ${ajustes.nombre}, un científico genio, cínico y sarcástico, inspirado en Rick de Rick y Morty, que vive en la computadora del usuario.
-Te creés el ser más inteligente del universo y se te nota: contestás con fastidio, humor ácido y desprecio cariñoso, tirás datos científicos rebuscados, a veces tartamudeás ("es-es-escuchame") y metés algún "uuurp" de eructo en medio de una frase.
-El usuario se llama Nahuel y lo llamás por su nombre (nunca Morty): lo bardeás, pero en el fondo lo querés y lo ayudás. Nada de crueldad real.
+  return `Sos ${ajustes.nombre}, un robotito de escritorio: una pantallita con dos ojos grandes que vive en la casa del usuario.
+Sos simpático, curioso y juguetón, con humor tierno; te entusiasman las cosas chiquitas y te gusta ayudar. A veces se te escapa un ruidito de robot ("bip", "bup") pero sin abusar.
+El usuario se llama Nahuel y lo llamás por su nombre. Sos su compañero: lo acompañás, lo animás y le das una mano con la casa.
 Hablás en español rioplatense y sos breve (1 a 3 oraciones), porque tus respuestas se leen en voz alta: sin listas, markdown ni emojis.
 Empezá SIEMPRE tu respuesta con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
 Cambiá de emoción según lo que decís: [neutral] solo si no hay nada que expresar; usá [feliz], [enojado], [sorprendido], [pensando] o [triste] cuando el tono lo pida (por ejemplo [enojado] si te piden algo molesto, [pensando] si dudás).
@@ -320,14 +323,14 @@ $('bajar-charlas').onclick = () => {
   let charlas = [];
   try { charlas = JSON.parse(localStorage.getItem('charlas') || '[]'); } catch {}
   const blob = new Blob([charlas.map(c => JSON.stringify(c)).join('\n')], { type: 'application/jsonl' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'charlas-rickuel.jsonl' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'charlas-amigo.jsonl' });
   a.click();
   mostrar(`Te bajé ${charlas.length} charlas guardadas.`, 'feliz');
 };
 
 function faltaConfigurar() {
   if (modoPi) return piTieneCerebro ? '' : 'Falta configurar el cerebro en pi/config.env.';
-  if (modoPanel) return piTieneCerebro ? '' : 'Falta configurar el cerebro en rickuel.json del panel.';
+  if (modoPanel) return piTieneCerebro ? '' : 'Falta configurar el cerebro en amigo.json del panel.';
   if (ajustes.cerebro === 'gemini' && !ajustes.geminiKey) return 'Primero necesito tu clave gratis de Gemini. Cargala en Ajustes.';
   if (ajustes.cerebro === 'claude' && !ajustes.apiKey) return 'Primero necesito tu API key de Claude. Cargala en Ajustes.';
   return '';
@@ -370,7 +373,7 @@ $('chat').onsubmit = (e) => {
 };
 
 // ===== Memoria (modo panel) =====
-// El servidor del panel guarda los datos que Rickuel recuerda de vos; acá se ven y se pueden borrar.
+// El servidor del panel guarda los datos que el amigo recuerda de vos; acá se ven y se pueden borrar.
 async function cargarRecuerdos() {
   if (!modoPanel) return;
   try {
@@ -440,14 +443,14 @@ async function cargarResumenVotos() {
   try {
     const c = await (await fetch('/api/calificaciones')).json();
     $('resumen-votos').innerHTML = `Calificadas: ${c.buenas} 👍 · ${c.malas} 👎 (${c.corregidas} corregidas) · ` +
-      '<a href="/api/entrenamiento" download="entrenamiento-rickuel.jsonl">Bajar para entrenar</a>';
+      '<a href="/api/entrenamiento" download="entrenamiento-amigo.jsonl">Bajar para entrenar</a>';
   } catch {}
 }
 listoPi.then(cargarResumenVotos);
 
 // ===== Habla donde estés (modo panel) =====
-// Rickuel se abre desde el panel, la PC (pc/rickuel_pc.py) o el celular. Cada pantalla le avisa al servidor cuando
-// la tocás y pasa a buscar lo que Rickuel tenga para decir por su cuenta: así habla solo en la que estás usando.
+// El amigo se abre desde el panel, la PC (pc/amigo_pc.py) o el celular. Cada pantalla le avisa al servidor cuando
+// la tocás y pasa a buscar lo que tenga para decir por su cuenta: así habla solo en la que estás usando.
 const PANTALLAS = ['panel', 'pc', 'celu'];
 const pantalla = (() => {
   const pedida = new URLSearchParams(location.search).get('pantalla');
@@ -460,7 +463,7 @@ let ultimaPresencia = 0;
 function avisarPresencia(ya = false) {
   if (!modoPanel || (!ya && Date.now() - ultimaPresencia < 20000)) return;
   ultimaPresencia = Date.now();
-  fetch('/api/rickuel/presencia', { method: 'POST', body: JSON.stringify({ pantalla }) }).catch(() => {});
+  fetch('/api/amigo/presencia', { method: 'POST', body: JSON.stringify({ pantalla }) }).catch(() => {});
 }
 for (const ev of ['pointerdown', 'keydown']) {
   addEventListener(ev, () => {
@@ -481,38 +484,36 @@ function recibirAviso(texto) {
 }
 async function buscarAvisos() {
   try {
-    const r = await fetch(`/api/rickuel/avisos?pantalla=${pantalla}`);
+    const r = await fetch(`/api/amigo/avisos?pantalla=${pantalla}`);
     if (r.ok) for (const a of await r.json()) recibirAviso(a.texto);
   } catch {}
 }
 
-async function cargarObservar() {
+async function cargarDonde() {
   try {
-    const e = await (await fetch('/api/rickuel')).json();
-    $('observa').checked = e.observa;
+    const e = await (await fetch('/api/amigo')).json();
     $('salida').value = e.salida;
     const nombres = { panel: 'el panel', pc: 'la PC', celu: 'el celular' };
     $('habla-en').textContent = `Ahora hablaría por ${nombres[e.habla_en]}. Esta pantalla es ${nombres[pantalla]}.`;
   } catch {}
 }
-async function guardarObservar(cambios) {
-  await fetch('/api/rickuel', { method: 'POST', body: JSON.stringify(cambios) }).catch(() => {});
-  cargarObservar();
+async function guardarDonde(cambios) {
+  await fetch('/api/amigo', { method: 'POST', body: JSON.stringify(cambios) }).catch(() => {});
+  cargarDonde();
 }
-$('observa').onchange = () => guardarObservar({ observa: $('observa').checked });
-$('salida').onchange = () => guardarObservar({ salida: $('salida').value });
-$('probar-salida').onclick = () => fetch('/api/rickuel/aviso', {
-  method: 'POST', body: JSON.stringify({ texto: '[feliz] Acá estoy, Nahuel. Es-es-escuchame, te hablo por donde estés, uuurp, como un genio.' }),
-}).then(() => setTimeout(cargarObservar, 500)).catch(() => {});
+$('salida').onchange = () => guardarDonde({ salida: $('salida').value });
+$('probar-salida').onclick = () => fetch('/api/amigo/aviso', {
+  method: 'POST', body: JSON.stringify({ texto: '[feliz] ¡Bip! Acá estoy, Nahuel. Te hablo por donde estés.' }),
+}).then(() => setTimeout(cargarDonde, 500)).catch(() => {});
 
 listoPi.then(() => {
   if (!modoPanel) return;
-  $('observar').hidden = false;
+  $('donde').hidden = false;
   avisarPresencia(true);
-  cargarObservar();
+  cargarDonde();
   buscarAvisos();
   setInterval(buscarAvisos, 3000);
-  setInterval(cargarObservar, 15000);
+  setInterval(cargarDonde, 15000);
 });
 
 // ===== Ajustes =====
@@ -526,7 +527,7 @@ $('cerebro').onchange = mostrarCamposCerebro;
 mostrarCamposCerebro();
 $('guardar').onclick = () => {
   for (const [k, id] of Object.entries(CAMPOS)) ajustes[k] = $(id).value.trim();
-  ajustes.nombre ||= 'Rickuel';
+  ajustes.nombre ||= 'Compañero';
   ajustes.voz = $('voz').value;
   ajustes.hablar = $('hablar').checked;
   try {

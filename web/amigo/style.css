@@ -1,0 +1,79 @@
+:root {
+  --fondo: #10161f;
+  --texto: #f2f2f2;
+  --panel: #1c2633;
+  --ojo: #4fe3ff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh;
+  background: var(--fondo); color: var(--texto);
+  font-family: system-ui, sans-serif;
+  display: grid; place-items: center;
+}
+#app { width: min(420px, 100% - 32px); display: flex; flex-direction: column; gap: 16px; align-items: center; }
+#cara { width: min(380px, 84vw); height: auto; aspect-ratio: 4 / 3; overflow: visible; }
+#pantalla { fill: #070b11; stroke: #1f2a36; stroke-width: 6; }
+/* Los ojos: celestes con brillo. Respiran apenas y, al hablar, rebotan con la voz (ver abrirBoca en app.js) */
+.ojo { fill: var(--ojo); transform-box: fill-box; transform-origin: center; transition: transform .2s cubic-bezier(.3,1.5,.5,1); }
+#brillo { filter: drop-shadow(0 0 7px var(--ojo)); }
+#ojos { transform-box: view-box; transform-origin: 200px 150px; animation: flotar 4.5s ease-in-out infinite; }
+@keyframes flotar { 50% { transform: translateY(-4px); } }
+#mirada { transition: transform .18s ease-out; }
+#cara.parpadeo .ojo { transform: scaleY(.08); transition-duration: .07s; }
+/* Párpados: del color de la pantalla, tapan una parte de cada ojo según la emoción */
+.tapa { fill: #070b11; transform-box: fill-box; transform-origin: center; transition: transform .3s cubic-bezier(.3,1.3,.5,1); }
+#cara.feliz .tapa.abajo { transform: translateY(-82px); }
+#cara.enojado .tapa.arriba.izq { transform: translateY(38px) rotate(22deg); }
+#cara.enojado .tapa.arriba.der { transform: translateY(38px) rotate(-22deg); }
+#cara.triste .tapa.arriba.izq { transform: translateY(30px) rotate(-18deg); }
+#cara.triste .tapa.arriba.der { transform: translateY(30px) rotate(18deg); }
+#cara.triste .ojo { transform: scaleY(.9); }
+#cara.pensando .tapa.arriba { transform: translateY(24px); }
+#cara.pensando .tapa.abajo { transform: translateY(-30px); }
+#cara.sorprendido .ojo { transform: scale(1.14); }
+#cara.escuchando #brillo { filter: drop-shadow(0 0 16px var(--ojo)); }
+@media (prefers-reduced-motion: reduce) { #ojos { animation: none; } }
+
+#burbuja {
+  background: var(--panel); padding: 12px 16px; border-radius: 14px;
+  margin: 0; width: 100%; min-height: 48px; line-height: 1.4;
+}
+#chat { display: flex; gap: 8px; width: 100%; }
+#texto { flex: 1; }
+input, select, button {
+  font: inherit; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid #444; background: #14151d; color: var(--texto);
+}
+button { cursor: pointer; background: #3b3f5c; }
+#mic.activo { background: #c0392b; }
+#ajustes, #donde { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
+#ajustes label, #donde label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 14px; }
+#ajustes label:has(input[type=checkbox]), #donde label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
+
+
+/* Pantalla completa en la Raspberry Pi (index.html?kiosko) */
+body.kiosko { cursor: none; overflow: hidden; }
+body.kiosko #app { width: 100vw; height: 100vh; justify-content: center; gap: 0; }
+body.kiosko #cara { width: min(96vw, 120vh); }
+body.kiosko #burbuja { background: none; text-align: center; font-size: 18px; min-height: 0; padding: 0 16px; opacity: .8; }
+body.kiosko #chat, body.kiosko #ajustes, body.kiosko #donde { display: none; }
+#memoria { width: 100%; background: var(--panel); border-radius: 12px; padding: 10px 14px; }
+#recuerdos { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 30vh; overflow-y: auto; }
+#recuerdos li { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; }
+#recuerdos button { padding: 4px 9px; border-radius: 8px; flex: none; }
+.aviso-memoria { margin: 10px 0 0; font-size: 12.5px; opacity: .6; }
+
+#calificar { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: -6px; }
+#calificar .votos { display: flex; gap: 10px; }
+#calificar .votos button { font-size: 20px; padding: 6px 16px; background: var(--panel); opacity: .6; }
+#calificar .votos button.elegido { opacity: 1; background: #3b3f5c; outline: 2px solid var(--ojo); }
+#corregir { display: flex; gap: 8px; width: 100%; }
+#mejor { flex: 1; min-width: 0; }
+#resumen-votos a { color: inherit; }
+
+/* Dentro del panel de casa (index.html?panel): sin ajustes, el cerebro se configura en el servidor del panel */
+body.panel { background: transparent; }
+body.panel #ajustes { display: none; }
+body.panel #app { padding-top: 56px; }
+[hidden] { display: none !important; }

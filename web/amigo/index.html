@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compañero</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <!-- La cara: una pantallita con dos ojos celestes. Los párpados (arriba y abajo) son del color de la pantalla y
+         tapan una parte de cada ojo según la emoción (ver style.css). -->
+    <svg id="cara" class="feliz" viewBox="0 0 400 300" role="img" aria-label="Compañero">
+      <defs>
+        <clipPath id="recorte"><rect x="12" y="12" width="376" height="276" rx="58"/></clipPath>
+      </defs>
+      <rect id="pantalla" x="6" y="6" width="388" height="288" rx="64"/>
+      <g clip-path="url(#recorte)">
+        <g id="ojos">
+          <g id="mirada">
+            <g id="brillo">
+              <rect class="ojo" x="90" y="95" width="80" height="110" rx="32"/>
+              <rect class="ojo" x="230" y="95" width="80" height="110" rx="32"/>
+            </g>
+            <rect class="tapa arriba izq" x="60" y="-15" width="140" height="110"/>
+            <rect class="tapa arriba der" x="200" y="-15" width="140" height="110"/>
+            <ellipse class="tapa abajo" cx="130" cy="280" rx="75" ry="60"/>
+            <ellipse class="tapa abajo" cx="270" cy="280" rx="75" ry="60"/>
+          </g>
+        </g>
+      </g>
+    </svg>
+
+    <p id="burbuja">¡Hola! Tocá el micrófono o escribime algo.</p>
+    <!-- Solo en el panel de casa: calificar la respuesta para quedarse con las buenas al entrenar -->
+    <div id="calificar" hidden>
+      <div class="votos">
+        <button type="button" id="voto-bueno" aria-label="Buena respuesta" title="Buena respuesta">👍</button>
+        <button type="button" id="voto-malo" aria-label="Mala respuesta" title="Mala respuesta">👎</button>
+      </div>
+      <form id="corregir" hidden>
+        <input id="mejor" maxlength="500" placeholder="¿Cómo debió responder? (opcional)">
+        <button type="submit">Guardar</button>
+      </form>
+    </div>
+
+    <form id="chat">
+      <button type="button" id="mic" title="Hablar">🎤</button>
+      <input id="texto" autocomplete="off" placeholder="Escribile algo...">
+      <button type="submit">Enviar</button>
+    </form>
+
+    <!-- Solo en el panel de casa: lo que recuerda de vos (se puede borrar) -->
+    <details id="memoria" hidden>
+      <summary>Lo que recuerdo de vos<span id="memoria-cuenta"></span></summary>
+      <ul id="recuerdos"></ul>
+      <p class="aviso-memoria">Decile «acordate de que…» para sumar algo, o «olvidá…» para sacarlo.</p>
+      <p class="aviso-memoria" id="resumen-votos"></p>
+    </details>
+
+    <!-- Solo en el panel de casa: por qué pantalla habla cuando dice algo por su cuenta -->
+    <details id="donde" hidden>
+      <summary>🔊 Por dónde habla</summary>
+      <label>Hablar por
+        <select id="salida">
+          <option value="auto">Donde esté (la última pantalla que toqué)</option>
+          <option value="pc">Siempre la PC</option>
+          <option value="panel">Siempre el panel</option>
+          <option value="celu">Siempre el celular</option>
+        </select>
+      </label>
+      <p class="aviso-memoria" id="habla-en"></p>
+      <button type="button" id="probar-salida">Probar: que me hable donde estoy</button>
+    </details>
+
+    <details id="ajustes">
+      <summary>⚙️ Ajustes</summary>
+      <label>Cerebro
+        <select id="cerebro">
+          <option value="gemini">Gemini (gratis, con límite diario)</option>
+          <option value="local">Modelo propio en tu compu (gratis, con Ollama)</option>
+          <option value="claude">Claude (API paga)</option>
+        </select>
+      </label>
+      <div data-cerebro="gemini">
+        <label>Clave de Gemini <small>(gratis en aistudio.google.com/apikey)</small>
+          <input id="gemini-key" type="password" placeholder="AIza...">
+        </label>
+        <label>Modelo de Gemini
+          <input id="gemini-modelo" placeholder="gemini-flash-latest">
+        </label>
+      </div>
+      <div data-cerebro="local">
+        <label>Dirección de Ollama
+          <input id="local-url" placeholder="http://localhost:11434">
+        </label>
+        <label>Modelo
+          <input id="local-modelo" placeholder="qwen2.5:3b">
+        </label>
+      </div>
+      <div data-cerebro="claude">
+        <label>API key de Claude
+          <input id="api-key" type="password" placeholder="sk-ant-...">
+        </label>
+      </div>
+      <label>Nombre del amigo
+        <input id="nombre" placeholder="Compañero">
+      </label>
+      <label>Voz
+        <select id="voz"></select>
+      </label>
+      <label><input id="hablar" type="checkbox" checked> Responder en voz alta</label>
+      <button type="button" id="guardar">Guardar</button>
+      <button type="button" id="bajar-charlas">Bajar charlas guardadas</button>
+    </details>
+  </main>
+  <script src="app.js"></script>
+  <script src="latigo.js"></script>
+</body>
+</html>

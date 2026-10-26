@@ -702,13 +702,14 @@ def probar(modo, ids):
     ENVIADO.clear()
 
 
-# ---- Rickuel: el cerebro del panel ----
-# La página de Rickuel (web/rickuel/) le manda la charla a /cerebro. Acá se arma el contexto de la casa, se elige
+# ---- El amigo: el cerebro del panel ----
+# La página del amigo (web/amigo/) le manda la charla a /cerebro. Acá se arma el contexto de la casa, se elige
 # el cerebro que responda (la PC con Ollama si está prendida, si no Gemini) y se ejecutan las acciones que pida.
-# rickuel.json (en .gitignore) guarda la IP de la PC y la clave de Gemini; ver rickuel.example.json.
+# amigo.json (en .gitignore) guarda la IP de la PC, la clave de Gemini y el nombre; ver amigo.example.json.
 
-RUTA_RICKUEL = os.path.join(BASE, "rickuel.json")
-RUTA_CHARLAS = os.path.join(BASE, "charlas-demo.jsonl" if DEMO else "charlas.jsonl")
+RUTA_AMIGO = os.path.join(BASE, "amigo.json")
+NOMBRE_AMIGO = "Compañero"   # si amigo.json no trae "nombre"
+RUTA_CHARLAS = os.path.join(BASE, "amigo-charlas-demo.jsonl" if DEMO else "amigo-charlas.jsonl")
 LOCK_CHARLAS = threading.Lock()
 MAX_ACCIONES = 6
 LOCAL_CAIDO = {"hasta": 0}   # si la PC no responde, no se vuelve a probar durante un rato (para no demorar cada charla)
@@ -722,9 +723,9 @@ ESCENAS = {
 }
 BLANCOS = {"calido": 0, "neutro": 50, "frio": 100}
 
-# Memoria: datos duraderos que Rickuel recuerda de Nahuel y de la casa (memoria.json, en .gitignore).
-# Los guarda cuando Nahuel se lo pide o cuenta algo duradero; se ven y se borran desde la pantalla de Rickuel.
-RUTA_MEMORIA = os.path.join(BASE, "memoria-demo.json" if DEMO else "memoria.json")
+# Memoria: datos duraderos que el amigo recuerda de Nahuel y de la casa (amigo-memoria.json, en .gitignore).
+# Los guarda cuando Nahuel se lo pide o cuenta algo duradero; se ven y se borran desde su pantalla.
+RUTA_MEMORIA = os.path.join(BASE, "amigo-memoria-demo.json" if DEMO else "amigo-memoria.json")
 LOCK_MEMORIA = threading.Lock()
 MAX_RECUERDOS = 60
 MAX_LARGO = 160
@@ -807,8 +808,8 @@ Ejemplo: [memoria:Nahuel prefiere la luz cálida de noche]
 Si te pide que olvides algo: [olvidar:palabra clave]. No guardes charla pasajera, claves, contraseñas ni datos de tarjetas,
 ni algo que ya figura en lo que recordás.
 Ejemplos:
-Nahuel: "apagá todo" -> "[feliz] Dale, a oscuras como un murciélago, uuurp. [accion:luz|todas|apagar]"
-Nahuel: "¿está prendida la lámpara?" -> "[neutral] Sí, al 80%, ¿no la ves o qué?"
+Nahuel: "apagá todo" -> "[feliz] ¡Listo, todo a oscuras! [accion:luz|todas|apagar]"
+Nahuel: "¿está prendida la lámpara?" -> "[neutral] Sí, está prendida al 80%."
 (Esta segunda respuesta no lleva marca porque Nahuel solo preguntó; no repitas esta nota.)
 """
 
@@ -817,10 +818,10 @@ def sin_tildes(t):
     return "".join(c for c in unicodedata.normalize("NFD", t) if not unicodedata.combining(c)).lower().strip()
 
 
-def cargar_rickuel():
-    if not os.path.exists(RUTA_RICKUEL):
+def cargar_amigo():
+    if not os.path.exists(RUTA_AMIGO):
         return {}
-    with open(RUTA_RICKUEL, encoding="utf-8") as f:
+    with open(RUTA_AMIGO, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -831,7 +832,7 @@ def resumen_luz(e):
 
 
 def contexto_casa():
-    """Estado de la casa que se le pasa a Rickuel en cada charla."""
+    """Estado de la casa que se le pasa al amigo en cada charla."""
     ahora = datetime.now().astimezone()
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     lineas = [f"Ahora es {dias[ahora.weekday()]} {ahora:%d/%m/%Y %H:%M}.", "Luces:"]
@@ -852,7 +853,7 @@ def contexto_casa():
         lineas.append(f"Despertador: {'activado a las ' + d['hora'] if d['activo'] else 'apagado'}. "
                       f"Modo trabajo: {'activado' if a['trabajo']['activo'] else 'apagado'}.")
     except Exception as e:
-        anotar(f"rickuel: no pude armar todo el contexto: {e}")
+        anotar(f"amigo: no pude armar todo el contexto: {e}")
     return "\n".join(lineas)
 
 
@@ -866,7 +867,7 @@ def luces_por_nombre(nombre):
 
 
 def ejecutar_accion(partes):
-    """Ejecuta una acción pedida por Rickuel. Solo se aceptan las de la lista; devuelve (ok, detalle)."""
+    """Ejecuta una acción pedida por el amigo. Solo se aceptan las de la lista; devuelve (ok, detalle)."""
     tipo = sin_tildes(partes[0]) if partes else ""
     if tipo == "escena" and len(partes) >= 2 and sin_tildes(partes[1]) in ESCENAS:
         cambios = ESCENAS[sin_tildes(partes[1])]
@@ -919,7 +920,7 @@ def sacar_acciones(crudo):
             partes = [p.strip() for p in m.split("|")]
             ok, detalle = ejecutar_accion(partes)
         hechas.append({"accion": "|".join(partes), "ok": ok, "detalle": detalle})
-        anotar(f"rickuel: {'|'.join(partes)} -> {'ok' if ok else 'falló: ' + detalle}")
+        anotar(f"amigo: {'|'.join(partes)} -> {'ok' if ok else 'falló: ' + detalle}")
     texto = " ".join(MARCA.sub("", crudo).split())
     fallas = [h["detalle"] for h in hechas if not h["ok"] and h["detalle"]]
     if fallas:
@@ -959,7 +960,7 @@ CALENTADO = {"hasta": 0}
 
 def calentar_local():
     """Carga el modelo de la PC en memoria de antemano: si estaba descargado, la primera respuesta tarda ~1 minuto."""
-    cfg = cargar_rickuel()
+    cfg = cargar_amigo()
     if not cfg.get("local_url") or time.time() < CALENTADO["hasta"]:
         return
     CALENTADO["hasta"] = time.time() + 120
@@ -972,7 +973,7 @@ def calentar_local():
             pedir_post(f"{url}/api/generate", {"model": cfg.get("local_modelo", "gemma3:12b"),
                                                "keep_alive": cfg.get("local_mantener", "30m")}, {}, 180)
         except Exception as e:
-            anotar(f"rickuel: no pude precargar el modelo: {e}")
+            anotar(f"amigo: no pude precargar el modelo: {e}")
     threading.Thread(target=trabajo, daemon=True).start()
 
 
@@ -997,13 +998,13 @@ def pensar_demo(sistema, mensajes):
     """Cerebro de mentira para probar el panel sin PC ni claves (solo en modo demo)."""
     t = sin_tildes(mensajes[-1]["content"])
     if "apag" in t:
-        return "[enojado] Ya va, uuurp, otra vez a oscuras. [accion:luz|todas|apagar]"
+        return "[neutral] Listo, todo apagado. [accion:luz|todas|apagar]"
     if "prend" in t:
-        return "[feliz] Y se hizo la luz, como yo lo dije. [accion:luz|todas|encender]"
+        return "[feliz] ¡Luces prendidas! [accion:luz|todas|encender]"
     if "cine" in t:
         return "[feliz] Modo cine, che. [accion:escena|cine]"
     if "acordate" in t or "acuerdate" in t:
-        return "[feliz] Anotado, aunque tu memoria es un desastre. [memoria:Nahuel prefiere la luz cálida de noche]"
+        return "[feliz] ¡Anotado! [memoria:Nahuel prefiere la luz cálida de noche]"
     if "olvida" in t:
         return "[neutral] Ya lo borré. [olvidar:luz cálida]"
     if "inventa" in t:
@@ -1025,13 +1026,13 @@ def cerebros_disponibles(cfg):
 def pensar(sistema, mensajes):
     """Prueba los cerebros en orden (PC, después Gemini). Devuelve (texto sin marcas, acciones, cerebro, texto crudo)."""
     errores = []
-    for nombre, usar, modelo in cerebros_disponibles(cargar_rickuel()):
+    for nombre, usar, modelo in cerebros_disponibles(cargar_amigo()):
         try:
             crudo = usar(sistema + "\n" + INSTRUCCIONES_CASA + "\n" + contexto_memoria() +
                          "\n\nEstado de la casa:\n" + contexto_casa(), mensajes)
         except Exception as e:
             errores.append(f"{nombre}: {e}")
-            anotar(f"rickuel: falló el cerebro {nombre}: {e}")
+            anotar(f"amigo: falló el cerebro {nombre}: {e}")
             continue
         if not crudo.strip():
             errores.append(f"{nombre}: respuesta vacía")
@@ -1040,11 +1041,11 @@ def pensar(sistema, mensajes):
         charla = guardar_charla(mensajes[-1]["content"], crudo, nombre, modelo, acciones)
         return texto, acciones, f"{nombre}:{modelo}", crudo, charla
     raise RuntimeError("No tengo cerebro disponible (" + "; ".join(errores) + ")" if errores else
-                       "Falta configurar el cerebro en rickuel.json")
+                       "Falta configurar el cerebro en amigo.json")
 
 
 def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
-    """Cada intercambio queda guardado: es el material para entrenar el modelo propio de Rickuel. Devuelve su id."""
+    """Cada intercambio queda guardado: es el material para entrenar el modelo propio del amigo. Devuelve su id."""
     ident = uuid.uuid4().hex[:12]
     with LOCK_CHARLAS, open(RUTA_CHARLAS, "a", encoding="utf-8") as f:
         f.write(json.dumps({"id": ident, "fecha": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -1054,7 +1055,7 @@ def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
 
 
 # ---- Calificaciones: 👍/👎 de Nahuel a cada respuesta, para quedarse con las buenas al entrenar ----
-RUTA_CALIF = os.path.join(BASE, "calificaciones-demo.json" if DEMO else "calificaciones.json")
+RUTA_CALIF = os.path.join(BASE, "amigo-calificaciones-demo.json" if DEMO else "amigo-calificaciones.json")
 LOCK_CALIF = threading.Lock()
 ID_CHARLA = re.compile(r"[0-9a-f]{12}")
 
@@ -1116,15 +1117,14 @@ def armar_entrenamiento():
     return "\n".join(filas) + ("\n" if filas else "")
 
 
-# ---- Rickuel habla donde estés ----
-# Rickuel se puede abrir desde varias pantallas: el panel, la PC (pc/rickuel_pc.py) o el celular. Cada una consulta
-# /api/rickuel/avisos cada pocos segundos (así se sabe cuáles están abiertas) y avisa cuando la tocás
-# (/api/rickuel/presencia). Lo que Rickuel diga sin que le pregunten (/api/rickuel/aviso) va a una sola pantalla:
-# la que usaste hace menos de 20 minutos, o si no el panel. "observa" es el interruptor para que comente lo que
-# hacés (lo va a leer el vigía de la cámara en la PC).
+# ---- El amigo habla donde estés ----
+# El amigo se puede abrir desde varias pantallas: el panel, la PC (pc/amigo_pc.py) o el celular. Cada una consulta
+# /api/amigo/avisos cada pocos segundos (así se sabe cuáles están abiertas) y avisa cuando la tocás
+# (/api/amigo/presencia). Lo que el amigo diga sin que le pregunten (/api/amigo/aviso) va a una sola pantalla:
+# la que usaste hace menos de 20 minutos, o si no el panel.
 
-RUTA_AJUSTES_RICKUEL = os.path.join(BASE, "ajustes-rickuel-demo.json" if DEMO else "ajustes-rickuel.json")
-AJUSTES_RICKUEL_BASE = {"observa": True, "salida": "auto"}   # salida: auto, pc, panel o celu
+RUTA_AJUSTES_AMIGO = os.path.join(BASE, "amigo-ajustes-demo.json" if DEMO else "amigo-ajustes.json")
+AJUSTES_AMIGO_BASE = {"salida": "auto"}   # salida: auto, pc, panel o celu
 PANTALLAS = ("panel", "pc", "celu")
 CONECTADA_SEG = 15        # una pantalla que no consultó en este rato se da por cerrada
 RECIENTE_SEG = 20 * 60    # "estás ahí" si la tocaste hace menos de esto
@@ -1133,28 +1133,24 @@ LOCK_PRESENCIA = threading.Lock()
 VISTA = {}     # pantalla -> última consulta
 TOCADA = {}    # pantalla -> último toque o mensaje
 AVISOS = []    # {"id", "texto", "destino", "hora"}
-CHARLA = []    # lo último que Nahuel le dijo a Rickuel y qué le contestó: el vigía lo usa para seguir la conversación
-CHARLA_VENCE_SEG = 30 * 60
 
 
-def leer_ajustes_rickuel():
-    ajustes = dict(AJUSTES_RICKUEL_BASE)
+def leer_ajustes_amigo():
+    ajustes = dict(AJUSTES_AMIGO_BASE)
     try:
-        with open(RUTA_AJUSTES_RICKUEL, encoding="utf-8") as f:
-            ajustes.update({k: v for k, v in json.load(f).items() if k in AJUSTES_RICKUEL_BASE})
+        with open(RUTA_AJUSTES_AMIGO, encoding="utf-8") as f:
+            ajustes.update({k: v for k, v in json.load(f).items() if k in AJUSTES_AMIGO_BASE})
     except (OSError, ValueError):
         pass
     return ajustes
 
 
-def guardar_ajustes_rickuel(nuevos):
+def guardar_ajustes_amigo(nuevos):
     with LOCK_PRESENCIA:
-        ajustes = leer_ajustes_rickuel()
-        if "observa" in nuevos:
-            ajustes["observa"] = bool(nuevos["observa"])
+        ajustes = leer_ajustes_amigo()
         if nuevos.get("salida") in ("auto",) + PANTALLAS:
             ajustes["salida"] = nuevos["salida"]
-        with open(RUTA_AJUSTES_RICKUEL, "w", encoding="utf-8") as f:
+        with open(RUTA_AJUSTES_AMIGO, "w", encoding="utf-8") as f:
             json.dump(ajustes, f, ensure_ascii=False, indent=2)
         return ajustes
 
@@ -1164,10 +1160,10 @@ def pantalla_valida(nombre):
 
 
 def donde_hablar(ahora=None):
-    """A qué pantalla va lo que Rickuel dice por su cuenta."""
+    """A qué pantalla va lo que el amigo dice por su cuenta."""
     ahora = ahora or time.time()
     conectadas = [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG]
-    salida = leer_ajustes_rickuel()["salida"]
+    salida = leer_ajustes_amigo()["salida"]
     if salida in conectadas:
         return salida
     recientes = [p for p in conectadas if ahora - TOCADA.get(p, 0) < RECIENTE_SEG]
@@ -1178,17 +1174,10 @@ def donde_hablar(ahora=None):
     return "panel"
 
 
-def anotar_charla(pregunta, respuesta):
-    with LOCK_PRESENCIA:
-        CHARLA.append({"hora": time.time(), "nahuel": str(pregunta)[:300], "rickuel": str(respuesta)[:300]})
-        del CHARLA[:-6]
-
-
-def estado_rickuel():
+def estado_amigo():
     ahora = time.time()
     with LOCK_PRESENCIA:
-        return {**leer_ajustes_rickuel(), "habla_en": donde_hablar(ahora),
-                "charla": [c for c in CHARLA if ahora - c["hora"] < CHARLA_VENCE_SEG],
+        return {**leer_ajustes_amigo(), "habla_en": donde_hablar(ahora),
                 "conectadas": [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG],
                 "pendientes": {p: sum(a["destino"] == p for a in AVISOS) for p in PANTALLAS}}
 
@@ -1248,28 +1237,29 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(leer_memoria())
         if self.path == "/api/calificaciones":
             return self._json(resumen_calificaciones())
-        if self.path.startswith("/api/rickuel"):
+        if self.path.startswith("/api/amigo"):
             ruta, _, consulta = self.path.partition("?")
             pantalla = pantalla_valida(urllib.parse.parse_qs(consulta).get("pantalla", [""])[0])
-            if ruta == "/api/rickuel/avisos":   # la pantalla de Rickuel se lleva lo que le toca decir
+            if ruta == "/api/amigo/avisos":   # la pantalla del amigo se lleva lo que le toca decir
                 return self._json(avisos_para(pantalla))
-            if ruta == "/api/rickuel":          # el inicio del panel también cuenta como pantalla abierta
+            if ruta == "/api/amigo":          # el inicio del panel también cuenta como pantalla abierta
                 if consulta:
                     with LOCK_PRESENCIA:
                         VISTA[pantalla] = time.time()
-                return self._json(estado_rickuel())
+                return self._json(estado_amigo())
         if self.path == "/api/entrenamiento":   # se baja desde el navegador, para llevarlo a Colab
             cuerpo = armar_entrenamiento().encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
-            self.send_header("Content-Disposition", 'attachment; filename="entrenamiento-rickuel.jsonl"')
+            self.send_header("Content-Disposition", 'attachment; filename="entrenamiento-amigo.jsonl"')
             self.send_header("Content-Length", str(len(cuerpo)))
             self.end_headers()
             return self.wfile.write(cuerpo)
-        if self.path == "/salud":   # así la página de Rickuel sabe que está dentro del panel
+        if self.path == "/salud":   # así la página del amigo sabe que está dentro del panel
             calentar_local()        # y de paso se va cargando el modelo mientras Nahuel escribe
-            cfg = cargar_rickuel()
-            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url"))})
+            cfg = cargar_amigo()
+            return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url")),
+                               "nombre": str(cfg.get("nombre") or NOMBRE_AMIGO)[:30]})
         self._estatico()
 
     def _estatico(self):
@@ -1306,13 +1296,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(resumen_calificaciones())
             except ValueError as e:
                 return self._json({"error": str(e)}, 400)
-        if self.path == "/api/rickuel":   # {"observa": true, "salida": "auto"}
-            guardar_ajustes_rickuel(cuerpo)
-            return self._json(estado_rickuel())
-        if self.path == "/api/rickuel/presencia":   # {"pantalla": "pc"}: la tocaste recién
+        if self.path == "/api/amigo":   # {"salida": "auto"}
+            guardar_ajustes_amigo(cuerpo)
+            return self._json(estado_amigo())
+        if self.path == "/api/amigo/presencia":   # {"pantalla": "pc"}: la tocaste recién
             tocar(pantalla_valida(cuerpo.get("pantalla")))
             return self._json({"ok": True})
-        if self.path == "/api/rickuel/aviso":   # {"texto": "[feliz] ..."}: Rickuel habla sin que le pregunten
+        if self.path == "/api/amigo/aviso":   # {"texto": "[feliz] ..."}: el amigo habla sin que le pregunten
             try:
                 return self._json(nuevo_aviso(cuerpo.get("texto", "")))
             except ValueError as e:
@@ -1320,10 +1310,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/memoria/borrar":
             borrar_recuerdo(cuerpo.get("id"))
             return self._json(leer_memoria())
-        if self.path == "/hablar":   # la voz de Rick vive en la PC (pc/voz_pc.py); acá solo se le pasa el texto
-            url = cargar_rickuel().get("voz_url")
+        if self.path == "/hablar":   # la voz del amigo vive en la PC (pc/voz_pc.py); acá solo se le pasa el texto
+            url = cargar_amigo().get("voz_url")
             if not url:
-                return self._json({"error": {"message": "Falta voz_url en rickuel.json"}}, 404)
+                return self._json({"error": {"message": "Falta voz_url en amigo.json"}}, 404)
             try:
                 # con la PC apagada, en 2 segundos ya se sabe: así la pantalla cae enseguida a la voz del navegador
                 destino = urllib.parse.urlsplit(url)
@@ -1342,8 +1332,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/cerebro":
             try:
                 texto, acciones, cerebro, crudo, charla = pensar(cuerpo["sistema"], cuerpo["mensajes"])
-                pregunta = (cuerpo["mensajes"] or [{}])[-1].get("content", "")
-                anotar_charla(pregunta, texto)
                 return self._json({"texto": texto, "acciones": acciones, "cerebro": cerebro, "crudo": crudo, "charla": charla})
             except Exception as e:   # la cara muestra el error en vez de quedarse colgada
                 return self._json({"error": {"message": str(e)}}, 500)

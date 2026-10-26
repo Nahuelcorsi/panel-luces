@@ -1,5 +1,5 @@
-// Látigo de Rickuel: un iconito arriba a la derecha; al tocarlo aparece un látigo que sigue al puntero (o al dedo).
-// Con un agitón chasquea (sonido + Rickuel se sobresalta) y cae. Física Verlet adaptada de OpenWhip (MIT).
+// Látigo del amigo: un iconito arriba a la derecha; al tocarlo aparece un látigo que sigue al puntero (o al dedo).
+// Con un agitón chasquea (sonido + el amigo se sobresalta) y cae. Física Verlet adaptada de OpenWhip (MIT).
 (() => {
   if (new URLSearchParams(location.search).has('kiosko')) return;   // la Raspberry no tiene mouse ni dedo
 
@@ -59,7 +59,7 @@
   }
 
   function reaccionar() {
-    // Rickuel se sobresalta un momento (usa ponerCara de app.js si está)
+    // El amigo se sobresalta un momento (usa ponerCara de app.js si está)
     try {
       if (typeof ponerCara === 'function') {
         const antes = typeof emocion === 'string' ? emocion : 'feliz';
