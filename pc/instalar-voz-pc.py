@@ -53,6 +53,10 @@ def main():
 
     INICIO.write_text(f'@start "" "{PYW}" "{AQUI / "voz_pc.py"}"\r\n', encoding="utf-8")
     print("Listo el arranque automático con Windows.")
+    viejo = INICIO.with_name("rickuel-voz.cmd")   # el arranque de la voz anterior
+    if viejo.exists():
+        viejo.unlink()
+        print("Saqué el arranque de la voz vieja: reiniciá la PC para que quede solo la nueva.")
 
     try:
         urllib.request.urlopen("http://localhost:8090", timeout=2)
