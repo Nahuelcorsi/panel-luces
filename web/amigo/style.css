@@ -32,6 +32,38 @@ body {
 #cara.pensando .tapa.arriba { transform: translateY(24px); }
 #cara.pensando .tapa.abajo { transform: translateY(-30px); }
 #cara.sorprendido .ojo { transform: scale(1.14); }
+/* Caras nuevas: dormido, enamorado, guiño y tomando café */
+#cara.dormido .ojo { transform: scaleY(.08); }
+#zetas { opacity: 0; fill: var(--ojo); font: 700 30px system-ui, sans-serif; }
+#zetas text { opacity: 0; }
+#cara.dormido #zetas { opacity: .85; }
+#cara.dormido #zetas text { animation: zeta 3s ease-in infinite; }
+#cara.dormido #zetas text:nth-child(2) { animation-delay: 1s; font-size: 22px; }
+#cara.dormido #zetas text:nth-child(3) { animation-delay: 2s; font-size: 16px; }
+@keyframes zeta { 0% { opacity: 0; transform: translateY(10px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-24px); } }
+.corazon { fill: #ff6fae; opacity: 0; transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 8px #ff6fae); }
+#cara.enamorado .ojo { opacity: 0; }
+#cara.enamorado .corazon { opacity: 1; animation: latido 1s ease-in-out infinite; }
+@keyframes latido { 0%, 100% { scale: 1; } 15% { scale: 1.15; } 30% { scale: .97; } 45% { scale: 1.1; } }
+#cara.guino .ojo.der { transform: scaleY(.08); }
+#cara.guino .tapa.abajo.izq { transform: translateY(-82px); }
+#cara.cafe .tapa.abajo { transform: translateY(-82px); }
+#cara.cafe #mirada { transform: translate(0, -18px) !important; }
+#taza { opacity: 0; transform-box: fill-box; transform-origin: 50% 100%; }
+#taza .cuerpo, #taza .asa { fill: none; stroke: var(--ojo); stroke-width: 7; }
+#taza .cuerpo { fill: #070b11; }
+#taza .cafe { fill: #8a5a3b; }
+#taza .vapor { fill: none; stroke: var(--ojo); stroke-width: 4; stroke-linecap: round; opacity: .5; animation: vapor 1.6s ease-in-out infinite; }
+#taza .vapor:nth-child(2) { animation-delay: .5s; }
+#taza .vapor:nth-child(3) { animation-delay: 1s; }
+#cara.cafe #taza { opacity: 1; animation: sorbo 6s ease-in-out both; filter: drop-shadow(0 0 6px var(--ojo)); }
+@keyframes sorbo {
+  0% { transform: translateY(110px); } 15%, 25% { transform: translateY(0); }
+  35%, 45% { transform: translate(-6px, -22px) rotate(-18deg); } 55% { transform: translateY(0); }
+  65%, 72% { transform: translate(-6px, -22px) rotate(-18deg); } 82% { transform: translateY(0); }
+  100% { transform: translateY(110px); }
+}
+@keyframes vapor { 0% { opacity: 0; transform: translateY(6px); } 50% { opacity: .6; } 100% { opacity: 0; transform: translateY(-10px); } }
 #cara.escuchando #brillo { filter: drop-shadow(0 0 16px var(--ojo)); }
 @media (prefers-reduced-motion: reduce) { #ojos { animation: none; } }
 

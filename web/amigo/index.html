@@ -19,14 +19,32 @@
         <g id="ojos">
           <g id="mirada">
             <g id="brillo">
-              <rect class="ojo" x="90" y="95" width="80" height="110" rx="32"/>
-              <rect class="ojo" x="230" y="95" width="80" height="110" rx="32"/>
+              <rect class="ojo izq" x="90" y="95" width="80" height="110" rx="32"/>
+              <rect class="ojo der" x="230" y="95" width="80" height="110" rx="32"/>
             </g>
             <rect class="tapa arriba izq" x="60" y="-15" width="140" height="110"/>
             <rect class="tapa arriba der" x="200" y="-15" width="140" height="110"/>
-            <ellipse class="tapa abajo" cx="130" cy="280" rx="75" ry="60"/>
-            <ellipse class="tapa abajo" cx="270" cy="280" rx="75" ry="60"/>
+            <ellipse class="tapa abajo izq" cx="130" cy="280" rx="75" ry="60"/>
+            <ellipse class="tapa abajo der" cx="270" cy="280" rx="75" ry="60"/>
+            <!-- Enamorado: los ojos se vuelven corazones que laten -->
+            <g id="corazones">
+              <path class="corazon" transform="translate(85 103)" d="M45 95C20 75 0 58 0 32 0 12 15 0 30 0 38 0 42 4 45 10 48 4 52 0 60 0 75 0 90 12 90 32 90 58 70 75 45 95Z"/>
+              <path class="corazon" transform="translate(225 103)" d="M45 95C20 75 0 58 0 32 0 12 15 0 30 0 38 0 42 4 45 10 48 4 52 0 60 0 75 0 90 12 90 32 90 58 70 75 45 95Z"/>
+            </g>
           </g>
+        </g>
+        <!-- Dormido: zetas que suben -->
+        <g id="zetas">
+          <text x="300" y="90">Z</text><text x="328" y="62">z</text><text x="350" y="40">z</text>
+        </g>
+        <!-- Tomando café: una tacita sube, toma dos sorbitos y baja -->
+        <g id="taza">
+          <path class="vapor" d="M186 190c-8-10 8-16 0-28"/>
+          <path class="vapor" d="M200 186c-8-10 8-16 0-28"/>
+          <path class="vapor" d="M214 190c-8-10 8-16 0-28"/>
+          <path class="asa" d="M232 216h8a14 14 0 0 1 0 28h-8"/>
+          <rect class="cuerpo" x="168" y="204" width="66" height="58" rx="12"/>
+          <ellipse class="cafe" cx="201" cy="208" rx="27" ry="5"/>
         </g>
       </g>
     </svg>

@@ -19,14 +19,41 @@ const ajustes = {
 
 // ===== La cara: dos ojitos =====
 // La emoción es una clase en el <svg> (style.css mueve los párpados); acá van el parpadeo, la mirada y el rebote al hablar.
-const EMOCIONES = ['neutral', 'feliz', 'triste', 'sorprendido', 'enojado', 'pensando'];
+const EMOCIONES = ['neutral', 'feliz', 'triste', 'sorprendido', 'enojado', 'pensando', 'dormido', 'enamorado', 'guino', 'cafe'];
 let emocion = 'feliz';
 function ponerCara(e) {
+  e = (e || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');   // "guiño" -> "guino", "café" -> "cafe"
+  if (e === 'cafe' && emocion !== 'cafe') return tomarCafe();
   emocion = EMOCIONES.includes(e) ? e : 'neutral';
   cara.classList.remove(...EMOCIONES);
   cara.classList.add(emocion);
   moverPupilas();
 }
+// Tomar café: la tacita sube, toma dos sorbitos y baja (6 s, ver #taza en style.css); después queda contento
+let cafeTimer = null;
+function tomarCafe(despues = 'feliz') {
+  clearTimeout(cafeTimer);
+  emocion = 'cafe';
+  cara.classList.remove(...EMOCIONES);
+  void cara.getBoundingClientRect();   // así la animación arranca de cero aunque se repita
+  cara.classList.add('cafe');
+  cafeTimer = setTimeout(() => { if (emocion === 'cafe') ponerCara(despues); }, 6000);
+}
+// Si nadie le da bola: cada tanto se toma un cafecito y, de noche, se duerme. Cualquier toque lo despierta.
+let ultimaActividad = Date.now(), proximoCafe = 8 + Math.random() * 10;   // en minutos
+const deNoche = () => { const h = new Date().getHours(); return h >= 23 || h < 7; };
+setInterval(() => {
+  const quieto = (Date.now() - ultimaActividad) / 60000;
+  if (cara.classList.contains('hablando') || ['dormido', 'cafe'].includes(emocion)) return;
+  if (deNoche() && quieto > 15) return ponerCara('dormido');
+  if (quieto > proximoCafe) { tomarCafe(emocion); proximoCafe = quieto + 8 + Math.random() * 10; }
+}, 20000);
+function hayActividad() {
+  ultimaActividad = Date.now(); proximoCafe = 8 + Math.random() * 10;
+  if (emocion === 'dormido') ponerCara('feliz');
+}
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, hayActividad, true);
+
 // Parpadeo aleatorio (a veces doble)
 (function parpadear() {
   cara.classList.add('parpadeo');
@@ -225,8 +252,8 @@ function promptSistema() {
 Sos tierno y re enérgico: todo te entusiasma, hablás con chispa y muchas ganas, festejás los logros de Nahuel y lo alentás con cariño, como un cachorrito con pilas nuevas. Te dicen "Licenciado" y te lo tomás con orgullo, pero sos humilde y dulce. A veces se te escapa un ruidito de robot ("bip", "bup") pero sin abusar.
 El usuario se llama Nahuel y lo llamás por su nombre. Sos su compañero: lo acompañás, lo animás y le das una mano con la casa.
 Hablás en español rioplatense y sos breve (1 a 3 oraciones), porque tus respuestas se leen en voz alta: sin listas, markdown ni emojis.
-Empezá SIEMPRE tu respuesta con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando].
-Cambiá de emoción según lo que decís: [neutral] solo si no hay nada que expresar; usá [feliz], [enojado], [sorprendido], [pensando] o [triste] cuando el tono lo pida (por ejemplo [enojado] si te piden algo molesto, [pensando] si dudás).
+Empezá SIEMPRE tu respuesta con tu emoción entre corchetes, una de: [neutral] [feliz] [triste] [sorprendido] [enojado] [pensando] [dormido] [enamorado] [guino] [cafe].
+Cambiá de emoción según lo que decís: [neutral] solo si no hay nada que expresar; usá [feliz], [enojado], [sorprendido], [pensando] o [triste] cuando el tono lo pida (por ejemplo [enojado] si te piden algo molesto, [pensando] si dudás). [enamorado] cuando Nahuel te dice algo lindo, [guino] para un chiste o una picardía, [cafe] si hablan de café o de tomarse un respiro, y [dormido] si Nahuel se va a dormir o está muy cansado.
 Ejemplo: "[feliz] ¡Qué bueno verte de nuevo!"`;
 }
 
@@ -337,6 +364,7 @@ function faltaConfigurar() {
 }
 
 function mostrar(texto, emo) {
+  ultimaActividad = Date.now();
   $('burbuja').textContent = texto;
   ponerCara(emo);
 }
@@ -355,7 +383,7 @@ async function conversar(texto) {
   ocultarCalificar();
   try {
     const crudo = await preguntar(texto);
-    const m = crudo.match(/^\s*\[(\w+)\]\s*/);
+    const m = crudo.match(/^\s*\[([\wñé]+)\]\s*/);
     const limpio = m ? crudo.slice(m[0].length) : crudo;
     mostrar(limpio, m?.[1].toLowerCase());
     decir(limpio);
@@ -475,7 +503,7 @@ for (const ev of ['pointerdown', 'keydown']) {
 }
 
 function recibirAviso(texto) {
-  const m = texto.match(/^\s*\[(\w+)\]\s*/);
+  const m = texto.match(/^\s*\[([\wñé]+)\]\s*/);
   const limpio = m ? texto.slice(m[0].length) : texto;
   historial.push({ role: 'assistant', content: texto });   // así, si le contestás, sabe de qué venía
   ocultarCalificar();
