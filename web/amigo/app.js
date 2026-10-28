@@ -29,6 +29,8 @@ function ponerCara(e) {
   cara.classList.add(emocion);
   moverPupilas();
 }
+// Ruiditos de robot (bips.js): suenan con cada emoción nueva, salvo que le hayas sacado la voz en Ajustes
+const sonar = (e) => { if (ajustes.hablar) bip(e); };
 // Tomar café: la tacita sube, toma dos sorbitos y baja (6 s, ver #taza en style.css); después queda contento
 let cafeTimer = null;
 function tomarCafe(despues = 'feliz') {
@@ -37,6 +39,7 @@ function tomarCafe(despues = 'feliz') {
   cara.classList.remove(...EMOCIONES);
   void cara.getBoundingClientRect();   // así la animación arranca de cero aunque se repita
   cara.classList.add('cafe');
+  setTimeout(() => { if (emocion === 'cafe') sonar('cafe'); }, 1500);   // cuando la taza llega a la boca
   cafeTimer = setTimeout(() => { if (emocion === 'cafe') ponerCara(despues); }, 6000);
 }
 // Si nadie le da bola: cada tanto se toma un cafecito y, de noche, se duerme. Cualquier toque lo despierta.
@@ -45,7 +48,7 @@ const deNoche = () => { const h = new Date().getHours(); return h >= 23 || h < 7
 setInterval(() => {
   const quieto = (Date.now() - ultimaActividad) / 60000;
   if (cara.classList.contains('hablando') || ['dormido', 'cafe'].includes(emocion)) return;
-  if (deNoche() && quieto > 15) return ponerCara('dormido');
+  if (deNoche() && quieto > 15) { sonar('dormido'); return ponerCara('dormido'); }
   if (quieto > proximoCafe) { tomarCafe(emocion); proximoCafe = quieto + 8 + Math.random() * 10; }
 }, 20000);
 function hayActividad() {
@@ -53,6 +56,7 @@ function hayActividad() {
   if (emocion === 'dormido') ponerCara('feliz');
 }
 for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, hayActividad, true);
+cara.addEventListener('pointerdown', () => sonar('feliz'));   // le hacés una caricia
 
 // Parpadeo aleatorio (a veces doble)
 (function parpadear() {
@@ -380,13 +384,15 @@ async function conversar(texto) {
   }
   avisarPresencia(true);
   mostrar(`Vos: "${texto}"`, 'pensando');
+  sonar('pensando');
   ocultarCalificar();
   try {
     const crudo = await preguntar(texto);
     const m = crudo.match(/^\s*\[([\wñé]+)\]\s*/);
     const limpio = m ? crudo.slice(m[0].length) : crudo;
     mostrar(limpio, m?.[1].toLowerCase());
-    decir(limpio);
+    if (emocion !== 'cafe') sonar(emocion);   // el del café suena solo, con el sorbo
+    setTimeout(() => decir(limpio), 450);   // primero el ruidito, después habla
     cargarRecuerdos();   // por si le pediste que se acuerde de algo o lo olvide
     mostrarCalificar();
   } catch (err) {
@@ -508,7 +514,8 @@ function recibirAviso(texto) {
   historial.push({ role: 'assistant', content: texto });   // así, si le contestás, sabe de qué venía
   ocultarCalificar();
   mostrar(limpio, m?.[1].toLowerCase());
-  decir(limpio);
+  if (emocion !== 'cafe') sonar(emocion);   // el del café suena solo, con el sorbo
+  setTimeout(() => decir(limpio), 450);
 }
 async function buscarAvisos() {
   try {
