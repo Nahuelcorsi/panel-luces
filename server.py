@@ -1209,6 +1209,32 @@ def tocar(pantalla):
         TOCADA[pantalla] = VISTA[pantalla] = time.time()
 
 
+# ---- El amigo mira lo que hacés en la PC ----
+# pc/ojo_pc.py avisa qué tipo de cosa tenés en primer plano (solo una categoría y el nombre de la app, nunca el
+# título de la ventana ni lo que escribís) y si estás quieto. Todas las pantallas abiertas del amigo lo consultan
+# en /api/amigo/pc y reaccionan con cara y ruidito.
+CATEGORIAS_PC = ("programando", "navegando", "video", "musica", "juego", "charla", "oficina", "inactivo", "vuelve",
+                 "descanso")
+EVENTO_PC = {}   # {"id", "categoria", "app", "hora"}
+
+
+def nuevo_evento_pc(datos):
+    categoria = str(datos.get("categoria", ""))
+    if categoria not in CATEGORIAS_PC:
+        raise ValueError("categoría desconocida")
+    evento = {"id": uuid.uuid4().hex[:12], "categoria": categoria, "app": str(datos.get("app", ""))[:40],
+              "hora": time.time()}
+    with LOCK_PRESENCIA:
+        EVENTO_PC.clear()
+        EVENTO_PC.update(evento)
+    return evento
+
+
+def evento_pc():
+    with LOCK_PRESENCIA:
+        return {**EVENTO_PC, "hace": round(time.time() - EVENTO_PC["hora"])} if EVENTO_PC else {}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _json(self, datos, codigo=200):
         cuerpo = json.dumps(datos).encode()
@@ -1242,6 +1268,8 @@ class Handler(BaseHTTPRequestHandler):
             pantalla = pantalla_valida(urllib.parse.parse_qs(consulta).get("pantalla", [""])[0])
             if ruta == "/api/amigo/avisos":   # la pantalla del amigo se lleva lo que le toca decir
                 return self._json(avisos_para(pantalla))
+            if ruta == "/api/amigo/pc":       # lo último que pasó en la PC
+                return self._json(evento_pc())
             if ruta == "/api/amigo":          # el inicio del panel también cuenta como pantalla abierta
                 if consulta:
                     with LOCK_PRESENCIA:
@@ -1302,6 +1330,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/amigo/presencia":   # {"pantalla": "pc"}: la tocaste recién
             tocar(pantalla_valida(cuerpo.get("pantalla")))
             return self._json({"ok": True})
+        if self.path == "/api/amigo/pc":   # {"categoria": "video", "app": "YouTube"}: lo manda pc/ojo_pc.py
+            try:
+                return self._json(nuevo_evento_pc(cuerpo))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
         if self.path == "/api/amigo/aviso":   # {"texto": "[feliz] ..."}: el amigo habla sin que le pregunten
             try:
                 return self._json(nuevo_aviso(cuerpo.get("texto", "")))

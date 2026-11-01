@@ -96,8 +96,38 @@ const bips = (() => {
   };
 
   function grabar(emocion, c, t = 0) {
-    const e = (emocion || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const e = (emocion || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     return (FRASES[e] || FRASES.neutral)(c, c.destination, t);
+  }
+
+  // Habla en idioma robot: un bip por sílaba aproximada (con tope), con el tono de la emoción. Una pregunta
+  // termina subiendo y una exclamación más fuerte. alSonar(i, dur) avisa cada bip, para mover los ojos.
+  const TIMBRE = {
+    feliz: [1000, 'triangle'], sorprendido: [1200, 'triangle'], enamorado: [1100, 'sine'], guino: [1000, 'square'],
+    triste: [450, 'sine'], enojado: [220, 'sawtooth'], dormido: [350, 'sine'], pensando: [700, 'sine'], cafe: [800, 'sine'],
+  };
+  function charla(texto, emocion, alSonar) {
+    try {
+      ctx ??= new AudioContext();
+      if (ctx.state === 'suspended') ctx.resume();
+    } catch { return 0; }
+    const e = (emocion || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const [base, tipo] = TIMBRE[e] || [850, 'sine'];
+    const vocales = (texto.match(/[aeiouáéíóú]+/gi) || []).length;
+    const n = Math.max(2, Math.min(16, Math.round(vocales / 2.5)));
+    const pregunta = /\?\s*$/.test(texto), grita = /!\s*$/.test(texto);
+    const vol = tipo === 'sawtooth' || tipo === 'square' ? 0.08 : 0.15;
+    const inicio = ctx.currentTime + 0.03;
+    let t = inicio;
+    for (let i = 0; i < n; i++) {
+      const ultimo = i === n - 1;
+      const f0 = base * azar(0.75, 1.35), dur = azar(0.05, 0.11);
+      const f1 = ultimo && pregunta ? f0 * 1.8 : f0 * azar(0.85, 1.25);
+      if (alSonar) setTimeout(() => alSonar(i, dur), (t - inicio) * 1000);
+      t = nota(ctx, ctx.destination, t, f0, f1, ultimo && pregunta ? dur * 2 : dur,
+        { tipo, vol: ultimo && grita ? vol * 1.5 : vol }) + (Math.random() < 0.2 ? azar(0.08, 0.14) : azar(0.015, 0.04));
+    }
+    return t - inicio;   // segundos que dura
   }
 
   function bip(emocion) {
@@ -110,6 +140,6 @@ const bips = (() => {
   // El navegador no deja sonar nada hasta que tocás la página: se aprovecha el primer toque.
   addEventListener('pointerdown', () => { try { ctx ??= new AudioContext(); ctx.resume(); } catch {} }, { once: true, capture: true });
 
-  return { bip, grabar, FRASES };
+  return { bip, grabar, charla, FRASES };
 })();
 const bip = bips.bip;

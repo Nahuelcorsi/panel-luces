@@ -206,11 +206,18 @@ function cargarVoces() {
 speechSynthesis.onvoiceschanged = cargarVoces;
 cargarVoces();
 
+// Habla en idioma robot, como el Microduck: bips con el tono de su emoción y los ojos rebotando con cada uno.
+// Lo que dice queda escrito en la burbuja. (La voz con palabras de abajo quedó guardada por si vuelve.)
 function decir(texto) {
+  if (!ajustes.hablar) return;
+  const dura = bips.charla(texto, emocion, (i, d) => { abrirBoca(0.4 + Math.random() * 0.6); setTimeout(cerrarBoca, d * 1000); });
+  setTimeout(cerrarBoca, dura * 1000 + 100);
+}
+function decirConPalabras(texto) {
   if (!ajustes.hablar) return;
   if (modoPi) return decirEnPi(texto).catch(err => mostrar(`No pude hablar: ${err.message}`, 'triste'));
   if (vozDePc) {   // la voz de Piper en la PC; si la PC está apagada, cae a la voz del navegador
-    return decirEnPi(texto).catch(() => { vozDePc = false; decir(texto); setTimeout(() => { vozDePc = true; }, 60000); });
+    return decirEnPi(texto).catch(() => { vozDePc = false; decirConPalabras(texto); setTimeout(() => { vozDePc = true; }, 60000); });
   }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(texto);
@@ -391,8 +398,7 @@ async function conversar(texto) {
     const m = crudo.match(/^\s*\[([\wñé]+)\]\s*/);
     const limpio = m ? crudo.slice(m[0].length) : crudo;
     mostrar(limpio, m?.[1].toLowerCase());
-    if (emocion !== 'cafe') sonar(emocion);   // el del café suena solo, con el sorbo
-    setTimeout(() => decir(limpio), 450);   // primero el ruidito, después habla
+    decir(limpio);
     cargarRecuerdos();   // por si le pediste que se acuerde de algo o lo olvide
     mostrarCalificar();
   } catch (err) {
@@ -514,13 +520,49 @@ function recibirAviso(texto) {
   historial.push({ role: 'assistant', content: texto });   // así, si le contestás, sabe de qué venía
   ocultarCalificar();
   mostrar(limpio, m?.[1].toLowerCase());
-  if (emocion !== 'cafe') sonar(emocion);   // el del café suena solo, con el sorbo
-  setTimeout(() => decir(limpio), 450);
+  decir(limpio);
 }
 async function buscarAvisos() {
   try {
     const r = await fetch(`/api/amigo/avisos?pantalla=${pantalla}`);
     if (r.ok) for (const a of await r.json()) recibirAviso(a.texto);
+  } catch {}
+}
+
+// Lo que hacés en la PC (pc/ojo_pc.py lo manda al panel): reacciona con cara y ruidito, y a veces dice algo.
+const REACCIONES_PC = {
+  programando: ['pensando', ['¡A programar! Bip bup.', 'Te acompaño con el código.', '¿Qué estamos armando hoy?']],
+  oficina: ['pensando', ['Modo trabajo. Bup.', 'Concentrados, eh.']],
+  video: ['feliz', ['¡A mirar algo!', 'Me quedo mirando con vos.']],
+  musica: ['feliz', ['¡Temazo!', 'Bip bip, qué ritmo.']],
+  juego: ['sorprendido', ['¡A jugar! Yo te alento.', '¡Dale que ganamos!']],
+  charla: ['guino', ['Mandale saludos de mi parte.']],
+  navegando: ['neutral', []],
+  vuelve: ['sorprendido', ['¡Volviste!', '¡Bip! Te extrañaba.']],
+  descanso: ['enamorado', ['Llevás un montón sin parar. ¿Un descansito?']],
+};
+let ultimoPc = null;   // null: todavía no miró; al abrir la página no reacciona a lo que ya había pasado
+async function mirarPc() {
+  try {
+    const e = await (await fetch('/api/amigo/pc')).json();
+    const primera = ultimoPc === null;
+    if (e.id === ultimoPc) return;
+    ultimoPc = e.id || '';
+    if (primera || !e.id || e.hace > 20 || cara.classList.contains('hablando')) return;   // nada viejo ni encima de una charla
+    if (e.categoria === 'inactivo') {
+      if (deNoche()) { sonar('dormido'); ponerCara('dormido'); } else tomarCafe(emocion);
+      return;
+    }
+    const [emo, frases] = REACCIONES_PC[e.categoria] || ['neutral', []];
+    if (frases.length && Math.random() < 0.6) {
+      const frase = frases[Math.floor(Math.random() * frases.length)];
+      mostrar(frase, emo);
+      decir(frase);
+    } else {
+      ultimaActividad = Date.now();
+      ponerCara(emo);
+      sonar(emo);
+    }
   } catch {}
 }
 
@@ -548,6 +590,8 @@ listoPi.then(() => {
   cargarDonde();
   buscarAvisos();
   setInterval(buscarAvisos, 3000);
+  mirarPc();
+  setInterval(mirarPc, 2000);
   setInterval(cargarDonde, 15000);
 });
 
