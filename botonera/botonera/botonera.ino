@@ -863,6 +863,7 @@ struct {
   int nCharlas = 0;
   String dijiste;                    // lo que le dijiste por el micrófono, ya pasado a texto (para mostrarlo)
   bool oyendo = false;               // el panel está pasando tu grabación a texto
+  int charlaN = 0;                   // la respuesta se escribe al ritmo de esta charla (0 = sin bips, a velocidad fija)
 } amigo;
 volatile int nivelMic = -1;   // 0-100 mientras graba (botón para hablar apretado); -1 = no está grabando
 
@@ -963,6 +964,7 @@ void charlarConCerebro(const String& frase) {
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
   String dicho = amigo.respuesta;
   bool contesto = codigo == 200 && leido && texto.length();
+  amigo.charlaN = contesto ? sonidos::charlasHechas + 1 : 0;   // el texto se va escribiendo con los bips
   xSemaphoreGive(candado);
   sonar(S_EMOCION + e);                     // primero el ruidito de la emoción...
   if (contesto) charlar(dicho, e);          // ...y después "dice" la respuesta en idioma robot, con los ojitos al ritmo
@@ -1019,6 +1021,7 @@ void noTeEntendi(const String& emocion, const String& texto) {
   amigo.emocion = emocion;
   amigo.respuesta = texto;
   amigo.dijiste = "";
+  amigo.charlaN = 0;
   ultimoUso = millis();
   sucio = true;
   xSemaphoreGive(candado);
@@ -1766,6 +1769,70 @@ void dibujarJuego() {
 }
 
 // La pantalla del amigo con el estilo de la casita: sus ojitos (ponerCara) van aparte, sin cambios
+// ---- La respuesta del amigo: se va escribiendo al ritmo de los bips y sube cuando no entra ----
+// Cuando terminó, tocando el globito arriba o abajo se lee lo de antes o lo de después.
+struct { String texto; unsigned long desde = 0; bool tipeando = false; int atras = 0; } tipeo;
+const int GLOBO_X = 134, GLOBO_Y = 40, GLOBO_AN = 180, GLOBO_AL = 138;
+
+int letrasVisibles(const String& s) {
+  if (s != tipeo.texto) { tipeo.texto = s; tipeo.desde = millis(); tipeo.atras = 0; }
+  int largo = s.length();
+  float avance = -1;
+  if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) avance = avanceCharla();
+  else if (amigo.charlaN && millis() - tipeo.desde < 2000) avance = 0;          // los bips están por empezar
+  if (avance < 0) avance = (millis() - tipeo.desde) / (35.0f * largo + 1);      // sin bips: 35 ms por letra
+  return constrain((int)(avance * largo + 0.5f), 0, largo);
+}
+
+void respuestaTipeada(const String& s, int x, int y, int ancho, int maxRenglones) {
+  g->setFont(&fonts::FreeSans9pt7b);
+  g->setTextColor(TINTA);
+  g->setTextDatum(textdatum_t::top_left);
+  int alto = g->fontHeight() - 2, largo = s.length();
+  // En renglones que entren en el ancho, cortando entre palabras
+  const int MAX_RENGLONES = 30;
+  int ini[MAX_RENGLONES], lar[MAX_RENGLONES], n = 0;
+  for (int i = 0; i < largo && n < MAX_RENGLONES;) {
+    int corte = -1;
+    for (int j = i;;) {
+      int esp = s.indexOf(' ', j);
+      if (esp < 0) esp = largo;
+      if (corte >= 0 && g->textWidth(s.substring(i, esp)) > ancho) break;
+      corte = esp;
+      if (esp >= largo) break;
+      j = esp + 1;
+    }
+    ini[n] = i;
+    lar[n++] = corte - i;
+    i = corte + 1;
+  }
+  int v = letrasVisibles(s), cursor = 0;
+  tipeo.tipeando = v < largo;
+  for (int k = 0; k < n; k++) if (ini[k] <= v) cursor = k;
+  int hay = tipeo.tipeando ? cursor + 1 : n;   // renglones que ya se pueden ver
+  tipeo.atras = tipeo.tipeando ? 0 : constrain(tipeo.atras, 0, hay > maxRenglones ? hay - maxRenglones : 0);
+  int primero = (hay > maxRenglones ? hay - maxRenglones : 0) - tipeo.atras;
+  for (int k = primero; k < hay && k < primero + maxRenglones; k++) {
+    String r = s.substring(ini[k], ini[k] + constrain(v - ini[k], 0, lar[k]));
+    int ry = y + (k - primero) * alto;
+    g->drawString(r, x, ry);
+    if (tipeo.tipeando && k == cursor) g->fillRect(x + g->textWidth(r) + 2, ry + 2, 2, alto - 6, ROSA);   // el cursorcito
+  }
+  // Flechitas: hay más arriba o más abajo (tocá el globito ahí para verlo)
+  int fx = GLOBO_X + GLOBO_AN - 12;
+  if (primero > 0) g->fillTriangle(fx - 5, y + 6, fx + 5, y + 6, fx, y, SUAVE);
+  if (!tipeo.tipeando && tipeo.atras > 0) {
+    int fy = y + maxRenglones * alto - 4;
+    g->fillTriangle(fx - 5, fy - 6, fx + 5, fy - 6, fx, fy, SUAVE);
+  }
+}
+
+void tocarGlobo(int y) {   // arriba: lo de antes; abajo: lo de después
+  if (tipeo.tipeando) return;
+  tipeo.atras += y < GLOBO_Y + GLOBO_AL / 2 ? 1 : -1;
+  if (tipeo.atras < 0) tipeo.atras = 0;
+}
+
 void dibujarAmigo() {
   int cuadro = cuadroAmigo(millis());   // la cara la pone ponerCara(), aparte
   g->fillRoundRect(134, yh(40), 180, 138, 16, BLANCO);   // el globito de lo que dice
@@ -1784,9 +1851,9 @@ void dibujarAmigo() {
     if (amigo.dijiste.length()) parrafo("Vos: " + amigo.dijiste, 143, yh(74), 164, 5, &fonts::Font2, TINTA);
   } else if (amigo.dijiste.length()) {   // lo que dijiste, chiquito arriba, y la respuesta abajo
     parrafo("Vos: " + amigo.dijiste, 143, yh(46), 164, 2, &fonts::Font2, SUAVE);
-    parrafo(amigo.respuesta, 143, yh(80), 164, 4, &fonts::FreeSans9pt7b, TINTA);
+    respuestaTipeada(amigo.respuesta, 143, yh(80), 150, 4);
   } else {
-    parrafo(amigo.respuesta, 143, yh(47), 164, 6, &fonts::FreeSans9pt7b, TINTA);
+    respuestaTipeada(amigo.respuesta, 143, yh(47), 150, 6);
   }
   const uint32_t COLORES[] = {ROSA, MENTA, CELESTE, AMARILLO};
   for (int i = 0; i < N_FRASES; i++) {   // las frases rápidas, como pastillitas
@@ -1918,6 +1985,7 @@ void alTocar(int x, int y) {
     if (y < ALTO_BARRA) volver = x < 120;
     else if (x < CARA_X + CARA_LADO && y < CARA_Y + CARA_LADO) volver = true;
     else if (y >= 182 && y < 224) preguntarAmigo(constrain((x - 4) / 79, 0, N_FRASES - 1));
+    else if (x >= GLOBO_X && y >= GLOBO_Y && y < GLOBO_Y + GLOBO_AL) tocarGlobo(y);
   } else if (y < ALTO_BARRA) {
     if (pagina != CASITA) volver = x < 120;              // la flechita "<"
     else if (x >= BOTON_X - 2) {                         // Modos, Jugar o el amigo
@@ -2390,8 +2458,10 @@ void loop() {
   }
   if (pagina == AMIGO) {                  // parpadeo y puntitos de "pensando"
     static int cuadro = -1;
+    static unsigned long tTipeo = 0;
     int c = cuadroAmigo(ahora);
     if (c != cuadro) { cuadro = c; sucio = true; }
+    if (tipeo.tipeando && ahora - tTipeo >= 40) { tTipeo = ahora; sucio = true; ultimoUso = ahora; }   // va escribiendo
   }
   if (amigo.pensando) ultimoUso = ahora;     // esperando la respuesta, que no se vaya al inicio
 

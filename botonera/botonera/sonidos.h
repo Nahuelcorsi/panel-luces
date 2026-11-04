@@ -71,6 +71,7 @@ const int MAX_BIPS = 16;
 // Cuándo se oye cada bip (en millis), para los ojitos: lo llena la tarea al armar la charla
 volatile unsigned long bipDesde[MAX_BIPS], bipHasta[MAX_BIPS];
 volatile int nBips = 0;
+volatile int charlasHechas = 0;   // sube cada vez que se arma una charla (para saber que ya empezó)
 
 void armarCharla(int emocion, Frase& f) {
   // {tono base, forma}: neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guiño, café
@@ -343,6 +344,7 @@ void tarea(void*) {
           t += frase.n[i].ms + frase.n[i].despues;
         }
         nBips = n;
+        charlasHechas++;
       }
       for (int i = 0; i < frase.cuantas; i++) {
         tocarNota(frase.n[i]);
@@ -382,6 +384,22 @@ inline int bipAhora() {
   for (int i = 0; i < sonidos::nBips; i++)
     if (t >= sonidos::bipDesde[i] && t < sonidos::bipHasta[i]) return i;
   return -1;
+}
+
+// Cuánto de la última charla ya se oyó, de 0 a 1 (para escribir el texto al mismo ritmo que los bips)
+inline float avanceCharla() {
+  int n = sonidos::nBips;
+  if (n <= 0) return 1;
+  unsigned long t = millis();
+  if (t < sonidos::bipDesde[0]) return 0;
+  if (t >= sonidos::bipHasta[n - 1]) return 1;
+  for (int i = n - 1; i >= 0; i--) {
+    if (t < sonidos::bipDesde[i]) continue;
+    float dur = sonidos::bipHasta[i] - sonidos::bipDesde[i];
+    float parte = dur > 0 ? (t - sonidos::bipDesde[i]) / dur : 1;
+    return (i + (parte > 1 ? 1 : parte)) / n;   // en la pausa después de un bip, queda quieto
+  }
+  return 0;
 }
 
 // Una vez, en setup()
