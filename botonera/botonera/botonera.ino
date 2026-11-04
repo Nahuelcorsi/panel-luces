@@ -2115,6 +2115,15 @@ void perillasJuego() {
   if (boton) accionJuego();
 }
 
+// Tiquito al girar una perilla (desde el loop, nunca desde la tarea de las perillas): uno cada 70 ms como
+// mucho, así girando rápido no se amontonan
+void tiquito(int cual) {
+  static unsigned long ultimo = 0;
+  if (millis() - ultimo < 70) return;
+  ultimo = millis();
+  sonar(cual);
+}
+
 void revisarPerillas() {
   if (pagina == JUEGO) { perillasJuego(); return; }
   for (int k = 0; k < PERILLA_COLOR; k++) {
@@ -2137,6 +2146,7 @@ void revisarPerillas() {
       despertar();
       int base = brilloPendiente[i] >= 0 ? brilloPendiente[i] : luces[i].brillo;
       brilloPendiente[i] = constrain(base + clics * 5, 1, 100);
+      if (brilloPendiente[i] != base) tiquito((clics > 0 ? S_TIC_SUBE : S_TIC_BAJA) + brilloPendiente[i]);
       mandarBrilloEn[i] = millis();          // se manda enseguida: la tarea "red" junta los que se acumulan
       elegida = i;
       mostrarCapsulas(k);
@@ -2203,6 +2213,7 @@ void revisarPerillaColor() {
     if (tonoPendiente >= 0 && tonoLuz != elegida) mandarTono();
     int base = tonoPendiente >= 0 ? tonoPendiente : tonoDeColor(luces[elegida].color);
     tonoPendiente = ((base + clics * 15) % 360 + 360) % 360;   // 24 clics dan la vuelta entera
+    tiquito(S_TIC_COLOR + tonoPendiente / 4);
     tonoLuz = elegida;
     mandarTonoEn = millis();
     mostrarCapsulas(PERILLA_COLOR);

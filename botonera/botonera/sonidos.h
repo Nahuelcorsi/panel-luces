@@ -25,12 +25,16 @@
 // S_EMOCION + n = la emoción n de EMOCIONES[] del .ino:
 // neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guino, cafe
 // S_CHARLA + n = la última frase de charlar(), con el timbre de la emoción n
-enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_HOLA, S_PRENDER, S_APAGAR, S_EMOCION, S_CHARLA = S_EMOCION + 10 };
+// S_TIC_SUBE + % y S_TIC_BAJA + % (0-100): tiquito al girar una perilla de brillo, más agudo cuanto más brillo
+// S_TIC_COLOR + tono/4 (0-89): tiquito suave de la perilla de color
+enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_HOLA, S_PRENDER, S_APAGAR, S_EMOCION, S_CHARLA = S_EMOCION + 10,
+              S_TIC_SUBE = S_CHARLA + 10, S_TIC_BAJA = S_TIC_SUBE + 101, S_TIC_COLOR = S_TIC_BAJA + 101,
+              S_FIN = S_TIC_COLOR + 90 };
 
 namespace sonidos {
 
 const int TASA = 22050;            // muestras por segundo (el DAC por DMA no baja de 19,6 kHz en el ESP32)
-const int BLOQUE = 512;            // muestras que se arman de una vez antes de pasarlas al DAC
+const int BLOQUE = 256;            // muestras que se arman de una vez antes de pasarlas al DAC (con 4, unos 46 ms de demora)
 const int MAX_NOTAS = 24;
 const float PI2 = 6.2831853f;
 
@@ -202,7 +206,16 @@ void armar(int cual, Frase& f) {
       break;
     default:
       if (esCharla(cual)) armarCharla(cual - S_CHARLA, f);
-      else armar(S_EMOCION, f);
+      else if (cual >= S_TIC_SUBE && cual < S_TIC_BAJA) {      // brillo para arriba: "tic" que sube
+        float b = 600 + (cual - S_TIC_SUBE) * 12;
+        f.agregar(b, b * 1.3f, 28, TRIANGULO, 0.5f, 0, 2);
+      } else if (cual >= S_TIC_BAJA && cual < S_TIC_COLOR) {   // brillo para abajo: "tuc" que baja
+        float b = 600 + (cual - S_TIC_BAJA) * 12;
+        f.agregar(b * 1.2f, b * 0.85f, 28, TRIANGULO, 0.5f, 0, 2);
+      } else if (cual >= S_TIC_COLOR && cual < S_FIN) {        // color: gotita suave, el tono sigue al color
+        float b = 500 + (cual - S_TIC_COLOR) * 12;
+        f.agregar(b, b * 1.1f, 22, SENO, 0.35f, 0, 2);
+      } else armar(S_EMOCION, f);
   }
 }
 
@@ -297,6 +310,18 @@ void apagarDac() {
 
 Frase frase;   // una sola a la vez (solo la usa la tarea)
 
+// ¿Viene otro sonido? Espera hasta 400 ms con el parlante prendido en silencio: así, si girás una perilla,
+// los tiquitos salen seguidos sin que el parlante se apague y se prenda entre uno y otro
+bool otroSonido(int& cual, unsigned long& escritas) {
+  const int PEDAZO = TASA / 100;   // de a 10 ms
+  for (int t = 0; t < 400; t += 10) {
+    if (xQueueReceive(cola, &cual, 0) == pdTRUE) return true;
+    for (int i = 0; i < PEDAZO; i++) mandar(128);
+    escritas += PEDAZO;
+  }
+  return xQueueReceive(cola, &cual, 0) == pdTRUE;
+}
+
 void tarea(void*) {
   int cual;
   for (;;) {
@@ -323,9 +348,11 @@ void tarea(void*) {
         tocarNota(frase.n[i]);
         escritas += TASA * (frase.n[i].ms + frase.n[i].despues) / 1000;
       }
-      escritas += TASA / 25;
-      for (int i = 0; i < TASA / 25; i++) mandar(128);  // 40 ms de aire entre frase y frase
-    } while (xQueueReceive(cola, &cual, 0) == pdTRUE);
+      bool tic = cual >= S_TIC_SUBE && cual < S_FIN;
+      int aire = tic ? TASA / 200 : TASA / 25;          // 5 ms detrás de un tiquito, 40 ms entre frase y frase
+      escritas += aire;
+      for (int i = 0; i < aire; i++) mandar(128);
+    } while (otroSonido(cual, escritas));
     rampa(128, 0, 60);                                  // y de vuelta a 0
     for (int i = 0; i < 4 * BLOQUE; i++) mandar(0);     // que el DMA termine de sacar todo antes de apagarlo
     apagarDac();
