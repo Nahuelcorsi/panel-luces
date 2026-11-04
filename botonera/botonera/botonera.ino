@@ -1860,9 +1860,10 @@ void dibujar() {
 // Al minuto sin usarla se oscurece y a los 5 se apaga; cualquier perilla, toque, el botón o la alarma la despiertan.
 const unsigned long OSCURECER_EN = 60000, APAGAR_EN = 5 * 60000UL;
 const int BRILLO_MIN = 25, BRILLO_MAX = 255;
-// Lo que marca el sensor con el cuarto bien iluminado y a oscuras. Si el brillo no acompaña, mirá en el
+// Lo que marca el sensor (0 a 4095) con el cuarto iluminado y a oscuras. Medido el 4/11: con luz normal o
+// linterna da 0, tapado con la mano 150-350 y a oscuras llega a 4095. Si el brillo no acompaña, mirá en el
 // monitor serie "Sensor de luz" en cada caso y poné esos números acá.
-const int LUZ_CLARO = 60, LUZ_OSCURO = 700;
+const int LUZ_CLARO = 20, LUZ_OSCURO = 2500;
 float brilloLuz = 200;          // el brillo que pide la luz del cuarto, suavizado
 int brilloPuesto = -1;
 
@@ -1887,8 +1888,9 @@ void medirLuz() {
   int suma = 0;
   for (int i = 0; i < 8; i++) suma += analogRead(PIN_LUZ);
   int v = suma / 8;
-  float pedido = BRILLO_MAX - (float)constrain(v - LUZ_CLARO, 0, LUZ_OSCURO - LUZ_CLARO) * (BRILLO_MAX - BRILLO_MIN) /
-                 (LUZ_OSCURO - LUZ_CLARO);
+  // Con raíz: el sensor sube muy rápido al principio (de 0 a 300 con apenas sombra), así no baja de golpe
+  float oscuridad = sqrtf((float)constrain(v - LUZ_CLARO, 0, LUZ_OSCURO - LUZ_CLARO) / (LUZ_OSCURO - LUZ_CLARO));
+  float pedido = BRILLO_MAX - oscuridad * (BRILLO_MAX - BRILLO_MIN);
   brilloLuz += (pedido - brilloLuz) * 0.15f;   // de a poco, así no salta si pasás la mano por adelante
   if (millis() - tAviso > 10000) {
     tAviso = millis();
@@ -2067,7 +2069,6 @@ void setup() {
   for (int& b : brilloPendiente) b = -1;
   xTaskCreatePinnedToCore(tareaPerillas, "perillas", 4096, nullptr, 2, nullptr, 0);
   analogSetPinAttenuation(PIN_MIC, ADC_11db);   // el micrófono puede llegar hasta unos 3 V
-  analogSetPinAttenuation(PIN_LUZ, ADC_0db);    // el sensor de luz da poquito: así se nota más la diferencia
   prepararSonido();
   sonar(S_HOLA);                                 // ruidito de "hola"
 
