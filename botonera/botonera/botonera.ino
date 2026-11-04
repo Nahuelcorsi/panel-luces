@@ -1026,11 +1026,13 @@ void ARDUINO_ISR_ATTR ticMic() {
   portYIELD_FROM_ISR(otraTarea);
 }
 
-void cabeceraWav(uint8_t* w, uint32_t bytes) {   // WAV mono de 16 bits
+// WAV mono de 8 bits (sin signo, 128 = silencio). Con 16 bits los 5 s no entraban: la memoria libre de la placa
+// está en pedazos de 64 KB como mucho, y 8 bits alcanzan de sobra para entender la voz.
+void cabeceraWav(uint8_t* w, uint32_t bytes) {
   auto u32 = [&](int i, uint32_t v) { for (int k = 0; k < 4; k++) w[i + k] = v >> (8 * k); };
   auto u16 = [&](int i, uint16_t v) { w[i] = v; w[i + 1] = v >> 8; };
   memcpy(w, "RIFF", 4); u32(4, 36 + bytes); memcpy(w + 8, "WAVEfmt ", 8);
-  u32(16, 16); u16(20, 1); u16(22, 1); u32(24, MUESTRAS_POR_SEG); u32(28, MUESTRAS_POR_SEG * 2); u16(32, 2); u16(34, 16);
+  u32(16, 16); u16(20, 1); u16(22, 1); u32(24, MUESTRAS_POR_SEG); u32(28, MUESTRAS_POR_SEG); u16(32, 1); u16(34, 8);
   memcpy(w + 36, "data", 4); u32(40, bytes);
 }
 
@@ -1047,27 +1049,33 @@ void noTeEntendi(const String& emocion, const String& texto) {
 }
 
 void tareaHablar(void*) {
-  // Lugar para la grabación (5 s = 80 KB); si no hay tanta memoria libre de un saque, graba menos
-  const size_t RESERVA = 50000;   // lo que tiene que quedar para el WiFi y el pedido al panel
+  // Lugar para la grabación (5 s = 40 KB, de un solo pedazo); si no hay tanto, graba menos
+  const size_t RESERVA = 50000;   // lo que tiene que quedar libre en total para el WiFi y el pedido al panel
   int maximo = MUESTRAS_POR_SEG * MAX_SEGUNDOS;
-  size_t libre = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-  if (libre < RESERVA + CABECERA_WAV + 2 * maximo)
-    maximo = libre > RESERVA + CABECERA_WAV + MUESTRAS_POR_SEG ? (libre - RESERVA - CABECERA_WAV) / 2 : 0;
-  uint8_t* wav = maximo ? (uint8_t*)malloc(CABECERA_WAV + 2 * maximo) : nullptr;
+  size_t libre = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT), total = ESP.getFreeHeap();
+  if (libre < CABECERA_WAV + maximo) maximo = libre > CABECERA_WAV ? libre - CABECERA_WAV : 0;
+  if (total < RESERVA + CABECERA_WAV + maximo) maximo = total > RESERVA + CABECERA_WAV ? total - RESERVA - CABECERA_WAV : 0;
+  if (maximo < MUESTRAS_POR_SEG) maximo = 0;   // menos de 1 s no sirve
+  uint8_t* wav = maximo ? (uint8_t*)malloc(CABECERA_WAV + maximo) : nullptr;
   int n = 0;
   if (wav) {
-    int16_t* m = (int16_t*)(wav + CABECERA_WAV);
+    uint8_t* m = wav + CABECERA_WAV;
     long suma = 0;
     int bajo = 4095, alto = 0, enVentana = 0;
     tareaOido = xTaskGetCurrentTaskHandle();
     hw_timer_t* reloj = timerBegin(1000000);
     timerAttachInterrupt(reloj, &ticMic);
     timerAlarm(reloj, 1000000 / MUESTRAS_POR_SEG, true, 0);
-    while (n < maximo && hablarApretado) {
+    // Termina recién cuando el botón lleva 300 ms suelto: si el dedo afloja un instante mientras hablás, sigue grabando
+    unsigned long sueltoDesde = 0;
+    while (n < maximo) {
+      if (hablarApretado) sueltoDesde = 0;
+      else if (!sueltoDesde) sueltoDesde = millis();
+      else if (millis() - sueltoDesde > 300) break;
       uint32_t tics = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
       if (!tics) continue;
       int s = analogRead(PIN_MIC);
-      for (uint32_t k = 0; k < tics && n < maximo; k++) { m[n++] = s; suma += s; }   // si se atrasó, repite la muestra
+      for (uint32_t k = 0; k < tics && n < maximo; k++) { m[n++] = s >> 4; suma += s >> 4; }   // si se atrasó, repite la muestra
       if (s < bajo) bajo = s;
       if (s > alto) alto = s;
       if (++enVentana >= MUESTRAS_POR_SEG / 20) {   // cada 50 ms, la barra
@@ -1077,12 +1085,15 @@ void tareaHablar(void*) {
     }
     timerEnd(reloj);
     tareaOido = nullptr;
-    // Se le saca el nivel de base (el MAX9814 deja la señal en ~1,25 V) y se pasa de 12 a 16 bits
+    Serial.printf("Grabe %.1f s (lugar para %.1f s; memoria: %u de un saque, %u en total)\n",
+                  n / (float)MUESTRAS_POR_SEG, maximo / (float)MUESTRAS_POR_SEG, (unsigned)libre, (unsigned)total);
+    // Se le saca el nivel de base (el MAX9814 deja la señal en ~1,25 V), se la centra en 128 y se la sube al doble
     int media = n ? suma / n : 0;
-    for (int i = 0; i < n; i++) m[i] = constrain((m[i] - media) * 16, -32767, 32767);
-    cabeceraWav(wav, 2 * n);
+    for (int i = 0; i < n; i++) m[i] = constrain((m[i] - media) * 2 + 128, 0, 255);
+    cabeceraWav(wav, n);
   }
   nivelMic = -1;
+  sonar(S_SOLTAR);                // terminó de grabar
   vTaskPrioritySet(nullptr, 1);   // lo que sigue es esperar al panel: sin apuro
 
   if (!wav) {
@@ -1104,7 +1115,7 @@ void tareaHablar(void*) {
     String respuesta;
     if (http.begin(String(PANEL) + "/api/voz")) {
       http.addHeader("Content-Type", "audio/wav");
-      codigo = http.POST(wav, CABECERA_WAV + 2 * n);
+      codigo = http.POST(wav, CABECERA_WAV + n);
       if (codigo > 0) respuesta = http.getString();
       http.end();
     }
@@ -1820,10 +1831,7 @@ void revisarHablar() {   // se llama con el candado tomado
   bool apretado = hablarApretado;
   if (grabando) ultimoUso = millis();
   if (nivelMic != nivelDibujado) { nivelDibujado = nivelMic; sucio = true; }   // la barra la mueve la tarea que graba
-  if (!apretado && antes) {
-    sonar(S_SOLTAR);
-    sucio = true;
-  }
+  if (!apretado && antes) sucio = true;
   antes = apretado;
 }
 

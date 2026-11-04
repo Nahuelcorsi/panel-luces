@@ -3,7 +3,7 @@
 La botonera graba mientras apretás su botón para hablar y le manda el WAV al panel del celular (/api/voz); el panel
 se lo pasa a este programa y, si la PC está apagada, usa Gemini. Escucha en la red de la casa (el celular tiene que
 llegar), en el puerto 8071:
-  POST /voz/transcribir  (cuerpo: WAV mono de 16 bits)  ->  {"texto": "..."}
+  POST /voz/transcribir  (cuerpo: WAV mono de 8 o 16 bits)  ->  {"texto": "..."}
   GET  /salud                                           ->  {"ok": true}
 Usa faster-whisper (el mismo de voz.py). El modelo se carga una sola vez al arrancar y queda en memoria.
   python oido_pc.py [--modelo small] [--puerto 8071]
@@ -30,9 +30,12 @@ def leer_wav(datos):
     with wave.open(io.BytesIO(datos)) as w:
         canales, ancho, tasa = w.getnchannels(), w.getsampwidth(), w.getframerate()
         crudo = w.readframes(w.getnframes())
-    if ancho != 2:
-        raise ValueError("el WAV tiene que ser de 16 bits")
-    audio = np.frombuffer(crudo, dtype="<i2").astype(np.float32) / 32768
+    if ancho == 1:   # la botonera manda 8 bits sin signo (128 = silencio)
+        audio = (np.frombuffer(crudo, dtype=np.uint8).astype(np.float32) - 128) / 128
+    elif ancho == 2:
+        audio = np.frombuffer(crudo, dtype="<i2").astype(np.float32) / 32768
+    else:
+        raise ValueError("el WAV tiene que ser de 8 o 16 bits")
     if canales > 1:
         audio = audio.reshape(-1, canales).mean(axis=1)
     if tasa != 16000 and len(audio):

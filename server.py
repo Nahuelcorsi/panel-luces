@@ -1072,16 +1072,21 @@ def oir_pc(url, wav):
         return json.load(r).get("texto", "")
 
 
-def oir_gemini(cfg, wav):
+NADA = "(nada)"   # lo que contesta Gemini si en la grabación no se oye ninguna palabra
+
+
+def oir_gemini(cfg, wav, modelo, espera):
     import base64
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
     cuerpo = {"contents": [{"role": "user", "parts": [
-        {"text": "Transcribí textual lo que dice esta grabación, en español rioplatense. Respondé solo con el texto, "
-                 "sin comillas ni comentarios. Si no se entiende nada o no habla nadie, respondé vacío."},
+        {"text": "Transcribí textual lo que se dice en esta grabación (español rioplatense). Respondé solo con el "
+                 f"texto, sin comillas ni comentarios. Si no se oye ninguna palabra, respondé exactamente: {NADA}"},
         {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(wav).decode()}}]}],
-        "generationConfig": {"maxOutputTokens": 800}}
-    d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, 30)
-    return "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []))
+        # sin pensar: con eso tardaba de 20 a 45 s en vez de 2-3 s
+        "generationConfig": {"maxOutputTokens": 200, "thinkingConfig": {"thinkingLevel": "minimal"}}}
+    d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, espera)
+    texto = "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", [])).strip()
+    return "" if texto.lower() == NADA else texto
 
 
 def oir(wav):
@@ -1091,7 +1096,10 @@ def oir(wav):
     if url_oido(cfg):
         orden.append(("pc", lambda: oir_pc(url_oido(cfg), wav)))
     if cfg.get("gemini_key"):
-        orden.append(("gemini", lambda: oir_gemini(cfg, wav)))
+        # El más rápido primero (2-3 s en las pruebas del 3/11); el de respaldo es más lento pero casi siempre está
+        rapido = cfg.get("gemini_oido_modelo", "gemini-3.5-flash")
+        orden.append((rapido, lambda: oir_gemini(cfg, wav, rapido, 12)))
+        orden.append(("gemini-flash-lite-latest", lambda: oir_gemini(cfg, wav, "gemini-flash-lite-latest", 20)))
     for nombre, usar in orden:
         try:
             return usar().strip().strip('"'), nombre
