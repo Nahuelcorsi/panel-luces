@@ -27,9 +27,11 @@
 // S_CHARLA + n = la última frase de charlar(), con el timbre de la emoción n
 // S_TIC_SUBE + % y S_TIC_BAJA + % (0-100): tiquito al girar una perilla de brillo, más agudo cuanto más brillo
 // S_TIC_COLOR + tono/4 (0-89): tiquito suave de la perilla de color
+// S_BIP + emoción * 2 (+1 si sube, para el final de una pregunta): un solo bip de charla; el .ino lo pide con
+// cada palabra que va escribiendo, así el texto y los bips van juntos
 enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_HOLA, S_PRENDER, S_APAGAR, S_EMOCION, S_CHARLA = S_EMOCION + 10,
               S_TIC_SUBE = S_CHARLA + 10, S_TIC_BAJA = S_TIC_SUBE + 101, S_TIC_COLOR = S_TIC_BAJA + 101,
-              S_FIN = S_TIC_COLOR + 90 };
+              S_BIP = S_TIC_COLOR + 90, S_FIN = S_BIP + 20 };
 
 namespace sonidos {
 
@@ -72,12 +74,14 @@ const int MS_POR_LETRA_CHARLA = 80;   // igual que MS_POR_LETRA del .ino
 // Cuándo se oye cada bip (en millis), para los ojitos: lo llena la tarea al armar la charla
 volatile unsigned long bipDesde[MAX_BIPS], bipHasta[MAX_BIPS];
 volatile int nBips = 0;
-volatile int charlasHechas = 0;   // sube cada vez que se arma una charla (para saber que ya empezó)
+volatile int charlasHechas = 0;
+volatile int bipsSueltos = 0;      // cuenta los bips de a uno, así los ojitos saltan una vez arriba y otra abajo   // sube cada vez que se arma una charla (para saber que ya empezó)
+
+// Timbre de cada emoción: neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guiño, café
+const float BASE[] = {850, 1000, 450, 1200, 220, 700, 350, 1100, 1000, 800};
+const Forma FORMA[] = {SENO, TRIANGULO, SENO, TRIANGULO, SIERRA, SENO, SENO, SENO, CUADRADA, SENO};
 
 void armarCharla(int emocion, Frase& f) {
-  // {tono base, forma}: neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guiño, café
-  static const float BASE[] = {850, 1000, 450, 1200, 220, 700, 350, 1100, 1000, 800};
-  static const Forma FORMA[] = {SENO, TRIANGULO, SENO, TRIANGULO, SIERRA, SENO, SENO, SENO, CUADRADA, SENO};
   char t[sizeof textoCharla];
   portENTER_CRITICAL(&muxCharla);
   memcpy(t, textoCharla, sizeof t);
@@ -221,7 +225,13 @@ void armar(int cual, Frase& f) {
       } else if (cual >= S_TIC_BAJA && cual < S_TIC_COLOR) {   // brillo para abajo: "tuc" que baja
         float b = 600 + (cual - S_TIC_BAJA) * 12;
         f.agregar(b * 1.2f, b * 0.85f, 28, TRIANGULO, 0.5f, 0, 2);
-      } else if (cual >= S_TIC_COLOR && cual < S_FIN) {        // color: gotita suave, el tono sigue al color
+      } else if (cual >= S_BIP && cual < S_FIN) {               // un bip de charla, con el timbre de la emoción
+        int e = (cual - S_BIP) / 2;
+        bool sube = (cual - S_BIP) % 2;
+        float f0 = BASE[e] * azar(0.75f, 1.35f);
+        float vol = FORMA[e] == SIERRA || FORMA[e] == CUADRADA ? 0.55f : 0.75f;
+        f.agregar(f0, sube ? f0 * 1.8f : f0 * azar(0.85f, 1.25f), sube ? 130 : azarEntero(45, 80), FORMA[e], vol, 0, 5);
+      } else if (cual >= S_TIC_COLOR && cual < S_BIP) {        // color: gotita suave, el tono sigue al color
         float b = 500 + (cual - S_TIC_COLOR) * 12;
         f.agregar(b, b * 1.1f, 22, SENO, 0.35f, 0, 2);
       } else armar(S_EMOCION, f);
@@ -343,6 +353,14 @@ void tarea(void*) {
     do {                                                // si llegaron más mientras tanto, van seguidos
       frase.cuantas = 0;
       armar(cual, frase);
+      bool bipSuelto = cual >= S_BIP && cual < S_FIN;
+      if (bipSuelto && frase.cuantas) {                 // un bip de charla: cuándo se oye (para los ojitos)
+        unsigned long t = inicio + escritas * 1000 / TASA;
+        bipDesde[0] = t;
+        bipHasta[0] = t + frase.n[0].ms;
+        nBips = 1;
+        bipsSueltos++;
+      }
       if (esCharla(cual)) {                             // anota cuándo se va a oír cada bip (para los ojitos)
         unsigned long t = inicio + escritas * 1000 / TASA;
         int n = frase.cuantas < MAX_BIPS ? frase.cuantas : MAX_BIPS;
@@ -386,11 +404,11 @@ inline void charlar(const String& texto, int emocion) {
   sonar(S_CHARLA + emocion);
 }
 
-// Qué bip de la última charla se está oyendo ahora (0, 1, 2...), o -1 si ninguno
+// Qué bip se está oyendo ahora (va contando: 0, 1, 2...), o -1 si ninguno
 inline int bipAhora() {
   unsigned long t = millis();
   for (int i = 0; i < sonidos::nBips; i++)
-    if (t >= sonidos::bipDesde[i] && t < sonidos::bipHasta[i]) return i;
+    if (t >= sonidos::bipDesde[i] && t < sonidos::bipHasta[i]) return i + sonidos::bipsSueltos;
   return -1;
 }
 

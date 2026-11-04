@@ -863,7 +863,8 @@ struct {
   int nCharlas = 0;
   String dijiste;                    // lo que le dijiste por el micrófono, ya pasado a texto (para mostrarlo)
   bool oyendo = false;               // el panel está pasando tu grabación a texto
-  int charlaN = 0;                   // la respuesta se escribe al ritmo de esta charla (0 = sin bips, a velocidad fija)
+  bool conBips = false;              // la respuesta se va "diciendo" con un bip por palabra (los errores, callados)
+  int emocionN = 0;                  // índice de la emoción en EMOCIONES[], para el timbre de los bips
 } amigo;
 volatile int nivelMic = -1;   // 0-100 mientras graba (botón para hablar apretado); -1 = no está grabando
 
@@ -964,10 +965,10 @@ void charlarConCerebro(const String& frase) {
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
   String dicho = amigo.respuesta;
   bool contesto = codigo == 200 && leido && texto.length();
-  amigo.charlaN = contesto ? sonidos::charlasHechas + 1 : 0;   // el texto se va escribiendo con los bips
+  amigo.conBips = contesto;                 // al escribirla, un bip por palabra (ver avanzarTipeo)
+  amigo.emocionN = e;
   xSemaphoreGive(candado);
-  sonar(S_EMOCION + e);                     // primero el ruidito de la emoción...
-  if (contesto) charlar(dicho, e);          // ...y después "dice" la respuesta en idioma robot, con los ojitos al ritmo
+  sonar(S_EMOCION + e);                     // primero el ruidito de la emoción; después la va "diciendo" mientras se escribe
 }
 
 // Tarea de un solo uso para las frases fijas
@@ -1021,7 +1022,7 @@ void noTeEntendi(const String& emocion, const String& texto) {
   amigo.emocion = emocion;
   amigo.respuesta = texto;
   amigo.dijiste = "";
-  amigo.charlaN = 0;
+  amigo.conBips = false;
   ultimoUso = millis();
   sucio = true;
   xSemaphoreGive(candado);
@@ -1771,22 +1772,79 @@ void dibujarJuego() {
 // La pantalla del amigo con el estilo de la casita: sus ojitos (ponerCara) van aparte, sin cambios
 // ---- La respuesta del amigo: se va escribiendo al ritmo de los bips y sube cuando no entra ----
 // Cuando terminó, tocando el globito arriba o abajo se lee lo de antes o lo de después.
-struct { String texto; unsigned long desde = 0; bool tipeando = false; int atras = 0; } tipeo;
+struct {
+  String texto;
+  unsigned long desde = 0;
+  bool tipeando = false, conBips = false;
+  int atras = 0, vistas = 0, emocion = 0;
+} tipeo;
 const int GLOBO_X = 134, GLOBO_Y = 40, GLOBO_AN = 180, GLOBO_AL = 138;
+bool soloGlobo = false;   // en este dibujo cambió solo el texto del globito: se pasa a la pantalla solo ese pedazo
+
+// El texto se escribe con su propio reloj, parejo: una letra cada 70 ms y una pausita después de un punto o una
+// coma. Los bips los pide el texto (uno por palabra), no al revés: así no va a los saltos.
+const int MS_POR_LETRA = 70, MS_PUNTO = 300, MS_COMA = 150, ESPERA_EMOCION = 700;
 
 int letrasVisibles(const String& s) {
-  if (s != tipeo.texto) { tipeo.texto = s; tipeo.desde = millis(); tipeo.atras = 0; }
-  int largo = s.length();
-  float avance = -1;
-  // Una letra cada 80 ms, parejito. Con bips arranca junto con el primero; los bips están repartidos a lo
-  // largo del mismo tiempo (sonidos.h), pero el texto no los espera: si se frenara en cada pausa, iría a los saltos.
-  const float MS_POR_LETRA = 80;   // como MS_POR_LETRA_CHARLA de sonidos.h
-  if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) {
-    unsigned long t0 = sonidos::bipDesde[0];
-    avance = millis() > t0 ? (millis() - t0) / (MS_POR_LETRA * largo + 1) : 0;
-  } else if (amigo.charlaN && millis() - tipeo.desde < 2000) avance = 0;          // los bips están por empezar
-  if (avance < 0) avance = (millis() - tipeo.desde) / (MS_POR_LETRA * largo + 1);  // sin bips
-  return constrain((int)(avance * largo + 0.5f), 0, largo);
+  if (s != tipeo.texto) {               // respuesta nueva: arranca de cero
+    tipeo.texto = s;
+    tipeo.desde = millis() + (amigo.conBips ? ESPERA_EMOCION : 0);   // primero suena el ruidito de la emoción
+    tipeo.atras = tipeo.vistas = 0;
+    tipeo.conBips = amigo.conBips;
+    tipeo.emocion = amigo.emocionN;
+  }
+  long t = (long)(millis() - tipeo.desde);
+  int largo = s.length(), v = 0;
+  for (long hasta = 0; v < largo; v++) {
+    char c = s[v];
+    hasta += MS_POR_LETRA + (c == '.' || c == '!' || c == '?' ? MS_PUNTO : c == ',' ? MS_COMA : 0);
+    if (hasta > t) break;
+  }
+  return t < 0 ? 0 : v;
+}
+
+// Desde el loop, con el candado: avanza el texto, pide un bip por cada palabra nueva y avisa que hay que redibujar
+void avanzarTipeo() {
+  if (pagina != AMIGO) return;
+  int antes = tipeo.vistas;
+  String s = amigo.respuesta;
+  int v = letrasVisibles(s);
+  if (tipeo.texto != s || v == tipeo.vistas) return;
+  static unsigned long tLetra = 0, peor = 0, suma = 0;
+  static int letras = 0;
+  unsigned long ahora = millis();
+  if (antes > 0 && v == antes + 1 && tLetra) {   // para el monitor serie: qué tan parejo va
+    unsigned long d = ahora - tLetra;
+    char c = s[antes - 1];
+    if (!(c == '.' || c == '!' || c == '?' || c == ',')) {
+      long desvio = (long)d - MS_POR_LETRA;
+      if ((unsigned long)abs(desvio) > peor) peor = abs(desvio);
+      suma += d;
+      letras++;
+    }
+  }
+  tLetra = ahora;
+  tipeo.vistas = v;
+  if (tipeo.conBips) {   // ¿empezó una palabra nueva? un bip (el de la última palabra de una pregunta, que sube)
+    for (int i = v - 1; i >= antes && i >= 0; i--) {
+      bool empieza = (i == 0 || s[i - 1] == ' ') && isalnum((unsigned char)s[i]);
+      if (!empieza) continue;
+      bool ultima = s.indexOf(' ', i) < 0;
+      String fin = s;
+      fin.trim();
+      sonar(S_BIP + tipeo.emocion * 2 + (ultima && fin.endsWith("?") ? 1 : 0));
+      break;   // uno solo aunque se hayan escrito varias letras de golpe
+    }
+  }
+  if (v >= (int)s.length()) {
+    if (letras) Serial.printf("Texto escrito: %d letras, %lu ms por letra en promedio, se desvio %lu ms como mucho\n",
+                              letras, suma / letras, peor);
+    peor = suma = 0;
+    letras = 0;
+    tLetra = 0;
+  }
+  sucio = true;
+  ultimoUso = ahora;
 }
 
 void respuestaTipeada(const String& s, int x, int y, int ancho, int maxRenglones) {
@@ -1907,7 +1965,11 @@ void dibujar() {
     case AMIGO: dibujarAmigo(); break;
   }
   bool conCara = conLienzo && pagina == AMIGO;
-  if (conCara) {        // la hoja entera menos el lugar de la cara: a la derecha, arriba y abajo de ella
+  if (conCara && soloGlobo) {   // se escribió una letra: a la pantalla va solo el globito (la cara no se toca)
+    lcd.setClipRect(GLOBO_X, GLOBO_Y, GLOBO_AN, GLOBO_AL);
+    lienzo.pushSprite(0, yHoja);
+    lcd.clearClipRect();
+  } else if (conCara) {        // la hoja entera menos el lugar de la cara: a la derecha, arriba y abajo de ella
     lcd.setClipRect(CARA_X + CARA_LADO, yHoja, 320 - CARA_X - CARA_LADO, 240 - yHoja);
     lienzo.pushSprite(0, yHoja);
     lcd.setClipRect(0, yHoja, CARA_X + CARA_LADO, CARA_Y - yHoja);
@@ -1925,7 +1987,7 @@ void dibujar() {
   g = &lcd;
   hojaY = 0;
   lcd.endWrite();
-  sucio = false;
+  sucio = soloGlobo = false;
 }
 
 // ---- brillo de la pantalla ----
@@ -2463,10 +2525,11 @@ void loop() {
   }
   if (pagina == AMIGO) {                  // parpadeo y puntitos de "pensando"
     static int cuadro = -1;
-    static unsigned long tTipeo = 0;
     int c = cuadroAmigo(ahora);
     if (c != cuadro) { cuadro = c; sucio = true; }
-    if (tipeo.tipeando && ahora - tTipeo >= 30) { tTipeo = ahora; sucio = true; ultimoUso = ahora; }   // va escribiendo
+    bool yaSucio = sucio;
+    avanzarTipeo();                       // va escribiendo la respuesta
+    soloGlobo = !yaSucio && sucio;        // si lo único que cambió es el texto, se pasa solo el globito
   }
   if (amigo.pensando) ultimoUso = ahora;     // esperando la respuesta, que no se vaya al inicio
 
