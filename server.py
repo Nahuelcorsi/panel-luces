@@ -948,6 +948,17 @@ def pensar_local(cfg, sistema, mensajes):
     except OSError:
         LOCAL_CAIDO["hasta"] = time.time() + 30
         raise RuntimeError("la PC no está prendida")
+    # Con el modelo ya cargado contesta en ~1,5 s, pero cargarlo tarda más de un minuto: mientras tanto contesta
+    # Gemini y la PC lo va cargando de fondo para la próxima
+    modelo = cfg.get("local_modelo", "gemma3:12b")
+    try:
+        with urllib.request.urlopen(f"{url}/api/ps", timeout=2) as r:
+            cargados = [m.get("name", "") for m in json.load(r).get("models", [])]
+    except Exception:
+        cargados = [modelo]   # si no se puede saber, se prueba igual
+    if modelo not in cargados and f"{modelo}:latest" not in cargados:
+        calentar_local()
+        raise RuntimeError("la PC está cargando el modelo")
     d = pedir_post(f"{url}/api/chat", {
         "model": cfg.get("local_modelo", "gemma3:12b"), "stream": False, "options": {"num_predict": 300},
         "keep_alive": cfg.get("local_mantener", "30m"),
@@ -977,14 +988,15 @@ def calentar_local():
     threading.Thread(target=trabajo, daemon=True).start()
 
 
-def pensar_gemini(cfg, sistema, mensajes):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
+def pensar_gemini(cfg, sistema, mensajes, modelo=None, espera=60):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo or cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
     cuerpo = {"systemInstruction": {"parts": [{"text": sistema}]},
               "contents": [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in mensajes],
-              "generationConfig": {"maxOutputTokens": 800}}
+              # sin pensar de antemano: contesta igual de bien y mucho más rápido
+              "generationConfig": {"maxOutputTokens": 800, "thinkingConfig": {"thinkingLevel": "minimal"}}}
     for intento in range(3):
         try:
-            d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, 60)
+            d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, espera)
             break
         except RuntimeError as e:
             # 503 (alta demanda) y 429 (límite por minuto) suelen pasar solos en unos segundos
@@ -1017,7 +1029,14 @@ def cerebros_disponibles(cfg):
     if cfg.get("local_url"):
         orden.append(("local", lambda s, m: pensar_local(cfg, s, m), cfg.get("local_modelo", "gemma3:12b")))
     if cfg.get("gemini_key"):
+        # Primero el rápido (~1,5 s en las pruebas del 3/11; el lite tardaba 15-20 s) y el de amigo.json de respaldo
+        rapido = cfg.get("gemini_rapido", "gemini-3.5-flash")
+        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m, rapido, 20), rapido))
         orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m), cfg.get("gemini_modelo", "gemini-flash-lite-latest")))
+    # Medido el 3/11 desde el celular: Gemini rápido ~2-5 s y la PC ~45 s (con todo el estado de la casa el
+    # modelo tarda en leer). Por eso la PC va de respaldo, salvo que amigo.json diga "primero": "pc".
+    if cfg.get("primero", "gemini") != "pc" and orden and orden[0][0] == "local":
+        orden.append(orden.pop(0))
     if DEMO and not orden:
         orden.append(("demo", pensar_demo, "demo"))
     return orden
