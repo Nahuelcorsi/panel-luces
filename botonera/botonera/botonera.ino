@@ -75,7 +75,8 @@ class LGFX : public lgfx::LGFX_Device {
     panel.config(p);
 
     auto l = luz.config();
-    l.pin_bl = 21; l.invert = false; l.freq = 12000; l.pwm_channel = 7;
+    // 44 kHz: a 12 kHz el parpadeo de la luz se colaba en el parlante como un pitido (no se oye arriba de 20 kHz)
+    l.pin_bl = 21; l.invert = false; l.freq = 44000; l.pwm_channel = 7;
     luz.config(l);
     panel.setLight(&luz);
 
@@ -501,12 +502,26 @@ void sonar(int cual) {   // desde cualquier lado
   if (colaSonidos) xQueueSend(colaSonidos, &cual, 0);   // si ya hay varios esperando, este no suena
 }
 
+// En silencio el pin queda en 0 fijo (sin PWM): así el amplificador no se queda chillando
+bool parlanteSonando = false;
+
+void callarParlante() {
+  if (parlanteSonando) ledcDetach(PIN_PARLANTE);
+  parlanteSonando = false;
+  pinMode(PIN_PARLANTE, OUTPUT);
+  digitalWrite(PIN_PARLANTE, LOW);
+}
+
 void tono(int hz, int ms) {   // hz 0 = silencio
   if (hz > 0) {
-    ledcChangeFrequency(PIN_PARLANTE, hz, 8);
-    ledcWrite(PIN_PARLANTE, VOLUMEN);
+    if (!parlanteSonando) {
+      parlanteSonando = ledcAttachChannel(PIN_PARLANTE, hz, 8, 0);
+      if (!parlanteSonando) Serial.printf("No se pudo prender el parlante a %d Hz\n", hz);
+    }
+    else ledcChangeFrequency(PIN_PARLANTE, hz, 8);
+    if (parlanteSonando) ledcWrite(PIN_PARLANTE, VOLUMEN);
   } else {
-    ledcWrite(PIN_PARLANTE, 0);
+    callarParlante();
   }
   vTaskDelay(pdMS_TO_TICKS(ms));
 }
@@ -544,7 +559,7 @@ void tocar(int cual) {
     case S_EMOCION + 9:   // café: sorbito
       deslizar(400, 900, 120); deslizar(900, 600, 80); deslizar(600, 1000, 100); break;
   }
-  ledcWrite(PIN_PARLANTE, 0);
+  callarParlante();
 }
 
 void tareaSonido(void*) {
@@ -555,8 +570,7 @@ void tareaSonido(void*) {
 
 void prepararSonido() {
   // Canal 0 (la luz de la pantalla usa el 7, con otro reloj)
-  if (!ledcAttachChannel(PIN_PARLANTE, 1000, 8, 0)) { Serial.println("Sin parlante"); return; }
-  ledcWrite(PIN_PARLANTE, 0);
+  callarParlante();
   colaSonidos = xQueueCreate(4, sizeof(int));
   xTaskCreatePinnedToCore(tareaSonido, "sonido", 3072, nullptr, 2, nullptr, 1);
 }
