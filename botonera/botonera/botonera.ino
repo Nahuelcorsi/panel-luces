@@ -1778,9 +1778,15 @@ int letrasVisibles(const String& s) {
   if (s != tipeo.texto) { tipeo.texto = s; tipeo.desde = millis(); tipeo.atras = 0; }
   int largo = s.length();
   float avance = -1;
-  if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) avance = avanceCharla();
-  else if (amigo.charlaN && millis() - tipeo.desde < 2000) avance = 0;          // los bips están por empezar
-  if (avance < 0) avance = (millis() - tipeo.desde) / (35.0f * largo + 1);      // sin bips: 35 ms por letra
+  // Una letra cada 65 ms como mucho (más rápido no se llega a leer). Con bips arranca con el primero y
+  // tampoco se adelanta a ellos; si los bips terminan antes, sigue escribiendo solo.
+  const float MS_POR_LETRA = 65;
+  if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) {
+    unsigned long t0 = sonidos::bipDesde[0];
+    float porTiempo = millis() > t0 ? (millis() - t0) / (MS_POR_LETRA * largo + 1) : 0;
+    avance = fminf(porTiempo, avanceCharla() < 1 ? avanceCharla() : 1);
+  } else if (amigo.charlaN && millis() - tipeo.desde < 2000) avance = 0;          // los bips están por empezar
+  if (avance < 0) avance = (millis() - tipeo.desde) / (MS_POR_LETRA * largo + 1);  // sin bips
   return constrain((int)(avance * largo + 0.5f), 0, largo);
 }
 
