@@ -39,7 +39,6 @@ const gpio_num_t PIN_INT_PERILLAS = GPIO_NUM_35, PIN_INT_TACTIL = GPIO_NUM_36;
 // Botón para hablar: P6 del expansor 0, a GND (apretado = 0). Antes ese pin iba a ver el USB, pero nunca se cableó.
 const int BIT_HABLAR = 6;
 const int PIN_MIC = 35;        // salida OUT del MAX9814 (conector P3)
-const int PIN_PARLANTE = 26;   // entrada del amplificador del conector SPEAK
 // Volumen de los ruiditos: 1 (casi nada) a 128 (al máximo). Se puede poner en config.h.
 #ifndef VOLUMEN
 #define VOLUMEN 20
@@ -502,88 +501,8 @@ void revisarDestello() {
   destello.luz = -1;
 }
 
-// ---- Ruiditos de robot por el parlante ----
-// Una tarea aparte los toca de a uno (sonar() solo los anota), así nada espera a que terminen.
-// Onda cuadrada con poco "ancho" (VOLUMEN): suena más bajito y menos chillón.
-enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_EMOCION };   // S_EMOCION + n = la emoción n de EMOCIONES[]
-QueueHandle_t colaSonidos = nullptr;
-
-void sonar(int cual) {   // desde cualquier lado
-  if (colaSonidos) xQueueSend(colaSonidos, &cual, 0);   // si ya hay varios esperando, este no suena
-}
-
-// En silencio el pin queda en 0 fijo (sin PWM): así el amplificador no se queda chillando
-bool parlanteSonando = false;
-
-void callarParlante() {
-  if (parlanteSonando) ledcDetach(PIN_PARLANTE);
-  parlanteSonando = false;
-  pinMode(PIN_PARLANTE, OUTPUT);
-  digitalWrite(PIN_PARLANTE, LOW);
-}
-
-void tono(int hz, int ms) {   // hz 0 = silencio
-  if (hz > 0) {
-    if (!parlanteSonando) {
-      parlanteSonando = ledcAttachChannel(PIN_PARLANTE, hz, 8, 0);
-      if (!parlanteSonando) Serial.printf("No se pudo prender el parlante a %d Hz\n", hz);
-    }
-    else ledcChangeFrequency(PIN_PARLANTE, hz, 8);
-    if (parlanteSonando) ledcWrite(PIN_PARLANTE, VOLUMEN);
-  } else {
-    callarParlante();
-  }
-  vTaskDelay(pdMS_TO_TICKS(ms));
-}
-
-void deslizar(int desde, int hasta, int ms) {   // el tono sube o baja de a poquito, como un silbido
-  int pasos = ms / 10 > 0 ? ms / 10 : 1;
-  for (int i = 0; i <= pasos; i++) tono(desde + (hasta - desde) * i / pasos, 10);
-}
-
-void tocar(int cual) {
-  switch (cual) {
-    case S_BOTON:  tono(1400, 35); tono(0, 25); tono(2000, 45); break;
-    case S_SOLTAR: deslizar(1600, 900, 70); break;
-    case S_ALARMA:
-      for (int i = 0; i < 4; i++) { tono(1760, 120); tono(0, 70); tono(1760, 120); tono(0, 450); }
-      break;
-    case S_EMOCION + 0:   // neutral: bip-bup
-      tono(1100, 60); tono(0, 40); tono(800, 70); break;
-    case S_EMOCION + 1:   // feliz: trino que sube
-      deslizar(800, 1500, 90); tono(0, 30); deslizar(1100, 1900, 90); tono(0, 30); tono(2100, 60); break;
-    case S_EMOCION + 2:   // triste: bajada lenta
-      deslizar(900, 380, 450); break;
-    case S_EMOCION + 3:   // sorprendido: subida rápida
-      deslizar(500, 2300, 160); tono(0, 40); tono(2300, 50); break;
-    case S_EMOCION + 4:   // enojado: gruñidito grave
-      for (int i = 0; i < 5; i++) { tono(180, 45); tono(240, 45); } break;
-    case S_EMOCION + 5:   // pensando: tres bips sueltos
-      for (int i = 0; i < 3; i++) { tono(random(700, 1600), 50); tono(0, 80); } break;
-    case S_EMOCION + 6:   // dormido: bostezo
-      deslizar(700, 300, 500); tono(0, 120); deslizar(320, 260, 300); break;
-    case S_EMOCION + 7:   // enamorado: dos notas tiernas, dos veces
-      for (int i = 0; i < 2; i++) { tono(900, 110); tono(1200, 160); tono(0, 70); } break;
-    case S_EMOCION + 8:   // guiño: bup-bip pícaro
-      tono(700, 60); tono(0, 30); deslizar(1200, 1800, 70); break;
-    case S_EMOCION + 9:   // café: sorbito
-      deslizar(400, 900, 120); deslizar(900, 600, 80); deslizar(600, 1000, 100); break;
-  }
-  callarParlante();
-}
-
-void tareaSonido(void*) {
-  int cual;
-  for (;;)
-    if (xQueueReceive(colaSonidos, &cual, portMAX_DELAY) == pdTRUE) tocar(cual);
-}
-
-void prepararSonido() {
-  // Canal 0 (la luz de la pantalla usa el 7, con otro reloj)
-  callarParlante();
-  colaSonidos = xQueueCreate(4, sizeof(int));
-  xTaskCreatePinnedToCore(tareaSonido, "sonido", 3072, nullptr, 2, nullptr, 1);
-}
+// ---- Ruiditos de robot por el parlante (GPIO26, conector SPEAK): ver sonidos.h ----
+#include "sonidos.h"
 
 // ---- Juego: Arkanoid ----
 const int COLUMNAS = 8, FILAS = 5;
@@ -1979,7 +1898,7 @@ void setup() {
   xTaskCreatePinnedToCore(tareaPerillas, "perillas", 4096, nullptr, 2, nullptr, 0);
   analogSetPinAttenuation(PIN_MIC, ADC_11db);   // el micrófono puede llegar hasta unos 3 V
   prepararSonido();
-  sonar(S_EMOCION + 1);                          // ruidito de "hola"
+  sonar(S_HOLA);                                 // ruidito de "hola"
 
   conectarWifi();
   configTzTime("<-03>3", "pool.ntp.org", "time.google.com");   // hora de Argentina
