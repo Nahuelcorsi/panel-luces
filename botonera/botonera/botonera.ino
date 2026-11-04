@@ -1354,12 +1354,6 @@ void dibujarBarra(bool conBarra) {
   barraHecha = firma;
   barraSucia = false;
 
-  if (pagina == AMIGO) {           // la pantalla del amigo queda como siempre; abajo, la franja para volver
-    g->fillRect(0, 204, 320, 36, FONDO);
-    flechita(12, 222, TENUE);
-    texto("Volver a la casita", 28, 222, &fonts::Font2, TENUE, textdatum_t::middle_left);
-    return;
-  }
   if (!conBarra) {                 // juego sin hoja: va dibujado arriba de todo y abajo queda una franja
     g->fillRect(0, 204, 320, 36, FONDO_JUEGO);
     return;
@@ -1385,6 +1379,9 @@ void dibujarBarra(bool conBarra) {
     texto("Modos", 26, 18, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
     texto("1 toca los cuartos", 312, 2, &fonts::Font2, SUAVE, textdatum_t::top_right);
     texto("2 elegi el modo", 312, 18, &fonts::Font2, SUAVE, textdatum_t::top_right);
+  } else if (pagina == AMIGO) {
+    flechita(10, 18, TINTA);
+    texto("Capsulito", 26, 18, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
   } else {                         // juego
     const char* NOMBRES[] = {"Jugar", "Arkanoid", "Invaders"};
     flechita(10, 18, TINTA);
@@ -1607,7 +1604,7 @@ void parrafo(const String& s, int x, int y, int ancho, int maxRenglones, const l
 
 // La cara del amigo (los mismos ojitos de la página) va directo a la pantalla y se redibuja solo cuando cambia
 // (emoción o parpadeo). Por eso la hoja se pasa sin ese pedazo (ver dibujar()).
-const int CARA_X = 0, CARA_Y = 12, CARA_LADO = 128;
+const int CARA_X = 0, CARA_Y = 44, CARA_LADO = 128;   // en la pantalla, debajo de la barra
 const uint32_t PANTALLITA = 0x070b11, OJO = 0x4fe3ff;
 int caraHecha = -1;   // qué cara hay en la pantalla ahora (-1 = ninguna, hay que dibujarla)
 
@@ -1655,7 +1652,7 @@ void ponerCara(bool ojosCerrados) {
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
   int estado = e * 2 + ojosCerrados;
   if (estado == caraHecha) return;
-  lcd.fillRect(CARA_X, CARA_Y, CARA_LADO, CARA_LADO, FONDO);
+  lcd.fillRect(CARA_X, CARA_Y, CARA_LADO, CARA_LADO, CREMA);   // alrededor de la carita, el fondo de la casita
   lcd.fillRoundRect(CARA_X + 4, CARA_Y + 14, CARA_LADO - 8, CARA_LADO - 28, 22, PANTALLITA);
   int an = 28, al = 40, dx = 0, dy = 0;
   if (e == 3) { an = 34; al = 48; }          // sorprendido: ojos grandes
@@ -1754,45 +1751,49 @@ void dibujarJuego() {
   else dibujarMenuJuegos();
 }
 
+// La pantalla del amigo con el estilo de la casita: sus ojitos (ponerCara) van aparte, sin cambios
 void dibujarAmigo() {
   int cuadro = cuadroAmigo(millis());   // la cara la pone ponerCara(), aparte
-  g->fillRoundRect(134, 6, 180, 150, 12, TARJETA);
+  g->fillRoundRect(134, yh(40), 180, 138, 16, BLANCO);   // el globito de lo que dice
+  g->fillTriangle(136, yh(66), 136, yh(86), 129, yh(76), BLANCO);
   int nivel = nivelMic;
   if (nivel >= 0) {                     // grabando: cuánto oye el micrófono
-    texto("Te escucho...", 144, 16, &fonts::FreeSansBold9pt7b, TEXTO);
-    g->fillRoundRect(144, 48, 160, 16, 6, PISTA);
-    g->fillRoundRect(144, 48, nivel * 160 / 100, 16, 6, nivel > 85 ? 0xff5a5a : OJO);
-    parrafo("Habla cerca del microfono y solta el boton cuando termines (5 segundos como mucho).", 143, 76, 164, 4,
-            &fonts::Font2, TENUE);
+    texto("Te escucho...", 144, yh(50), &fonts::FreeSansBold9pt7b, TINTA);
+    g->fillRoundRect(144, yh(78), 160, 16, 8, FONDO_CAPSULA);
+    if (nivel > 0) g->fillRoundRect(144, yh(78), constrain(nivel * 160 / 100, 16, 160), 16, 8, nivel > 85 ? 0xE8304A : ROSA);
+    parrafo("Habla cerca del microfono y solta el boton cuando termines (5 segundos como mucho).", 143, yh(104), 164, 4,
+            &fonts::Font2, SUAVE);
   } else if (amigo.pensando) {
     String puntos = amigo.oyendo ? "Escuchando" : "Pensando";
     for (int i = 0; i < cuadro - 10; i++) puntos += ".";
-    texto(puntos, 144, 16, &fonts::FreeSans9pt7b, TENUE);
-    if (amigo.dijiste.length()) parrafo("Vos: " + amigo.dijiste, 143, 40, 164, 5, &fonts::Font2, TEXTO);
+    texto(puntos, 144, yh(50), &fonts::FreeSansBold9pt7b, SUAVE);
+    if (amigo.dijiste.length()) parrafo("Vos: " + amigo.dijiste, 143, yh(74), 164, 5, &fonts::Font2, TINTA);
   } else if (amigo.dijiste.length()) {   // lo que dijiste, chiquito arriba, y la respuesta abajo
-    parrafo("Vos: " + amigo.dijiste, 143, 12, 164, 2, &fonts::Font2, TENUE);
-    parrafo(amigo.respuesta, 143, 46, 164, 5, &fonts::FreeSans9pt7b, TEXTO);
+    parrafo("Vos: " + amigo.dijiste, 143, yh(46), 164, 2, &fonts::Font2, SUAVE);
+    parrafo(amigo.respuesta, 143, yh(80), 164, 4, &fonts::FreeSans9pt7b, TINTA);
   } else {
-    parrafo(amigo.respuesta, 143, 13, 164, 7, &fonts::FreeSans9pt7b, TEXTO);
+    parrafo(amigo.respuesta, 143, yh(47), 164, 6, &fonts::FreeSans9pt7b, TINTA);
   }
-  for (int i = 0; i < N_FRASES; i++) {
+  const uint32_t COLORES[] = {ROSA, MENTA, CELESTE, AMARILLO};
+  for (int i = 0; i < N_FRASES; i++) {   // las frases rápidas, como pastillitas
     int x = 4 + i * 79;
-    g->fillRoundRect(x, 162, 75, 36, 10, amigo.pensando ? PISTA : TARJETA);
-    texto(FRASES[i][0], x + 37, 180, &fonts::Font2, amigo.pensando ? TENUE : TEXTO, textdatum_t::middle_center);
+    g->fillRoundRect(x, yh(186), 75, 34, 17, amigo.pensando ? APAGADA : COLORES[i % 4]);
+    texto(FRASES[i][0], x + 37, yh(203), &fonts::Font2, amigo.pensando ? SUAVE : TINTA, textdatum_t::middle_center);
   }
+  texto("Mantene el boton para hablarme", 160, yh(231), &fonts::Font2, SUAVE, textdatum_t::middle_center);
 }
 
 void dibujar() {
   bool conLienzo = lienzo.getBuffer() != nullptr;
-  // Casita, Modos y Jugar: barra arriba y la hoja debajo. El amigo: la hoja arriba, como siempre.
-  bool conBarra = pagina != AMIGO && (conLienzo || pagina != JUEGO);
+  // Barra arriba y la hoja debajo (el juego sin hoja va arriba de todo)
+  bool conBarra = conLienzo || pagina != JUEGO;
   int yHoja = conBarra ? ALTO_BARRA : 0;
   lcd.startWrite();
   g = &lcd;
   hojaY = 0;
   dibujarBarra(conBarra);
   if (conLienzo) { g = &lienzo; hojaY = yHoja; }
-  uint32_t fondo = pagina == AMIGO ? FONDO : pagina == JUEGO ? FONDO_JUEGO : CREMA;
+  uint32_t fondo = pagina == JUEGO ? FONDO_JUEGO : CREMA;
   g->fillRect(0, conLienzo ? 0 : yHoja, 320, 204, fondo);
   switch (pagina) {
     case CASITA:
@@ -1811,12 +1812,12 @@ void dibujar() {
   }
   bool conCara = conLienzo && pagina == AMIGO;
   if (conCara) {        // la hoja entera menos el lugar de la cara: a la derecha, arriba y abajo de ella
-    lcd.setClipRect(CARA_X + CARA_LADO, 0, 320 - CARA_X - CARA_LADO, 204);
-    lienzo.pushSprite(0, 0);
-    lcd.setClipRect(0, 0, CARA_X + CARA_LADO, CARA_Y);
-    lienzo.pushSprite(0, 0);
-    lcd.setClipRect(0, CARA_Y + CARA_LADO, CARA_X + CARA_LADO, 204 - CARA_Y - CARA_LADO);
-    lienzo.pushSprite(0, 0);
+    lcd.setClipRect(CARA_X + CARA_LADO, yHoja, 320 - CARA_X - CARA_LADO, 240 - yHoja);
+    lienzo.pushSprite(0, yHoja);
+    lcd.setClipRect(0, yHoja, CARA_X + CARA_LADO, CARA_Y - yHoja);
+    lienzo.pushSprite(0, yHoja);
+    lcd.setClipRect(0, CARA_Y + CARA_LADO, CARA_X + CARA_LADO, 240 - CARA_Y - CARA_LADO);
+    lienzo.pushSprite(0, yHoja);
     lcd.clearClipRect();
     ponerCara(cuadroAmigo(millis()) == 1);
   } else {
@@ -1850,9 +1851,10 @@ void despertar() {
 void alTocar(int x, int y) {
   bool volver = false;
   if (pagina == AMIGO) {
-    // Para volver: la franja de abajo o tocar la cara (arriba a la izquierda)
-    if (y >= 204 || (x < CARA_X + CARA_LADO && y < 158)) volver = true;
-    else if (y >= 158) preguntarAmigo(constrain((x - 4) / 79, 0, N_FRASES - 1));
+    // Para volver: la flechita de arriba o tocar la carita
+    if (y < ALTO_BARRA) volver = x < 120;
+    else if (x < CARA_X + CARA_LADO && y < CARA_Y + CARA_LADO) volver = true;
+    else if (y >= 182 && y < 224) preguntarAmigo(constrain((x - 4) / 79, 0, N_FRASES - 1));
   } else if (y < ALTO_BARRA) {
     if (pagina != CASITA) volver = x < 120;              // la flechita "<"
     else if (x >= BOTON_X - 2) {                         // Modos, Jugar o el amigo
