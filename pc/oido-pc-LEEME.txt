@@ -1,0 +1,25 @@
+OIDO DEL CAPSULITO EN LA PC DE ESCRITORIO (Whisper, para la botonera)
+======================================================================
+
+Que hace: la botonera graba lo que le decis (boton para hablar), el panel del celular manda esa grabacion
+a esta PC y oido_pc.py la pasa a texto con Whisper. Si la PC esta apagada, el panel usa Gemini solo.
+
+Es un programa aparte (no un cambio en amigo_pc.py) porque amigo_pc.py escucha solo en localhost
+(127.0.0.1) y el celular no puede llegar ahi. oido_pc.py escucha en la red de la casa, puerto 8071.
+
+Instalacion en la PC de escritorio (DESKTOP-9MQ44KE):
+1. Copiar oido_pc.py a la carpeta de capsulito-pc (la misma de voz.py).
+2. Usar el mismo Python que ya corre voz.py (tiene faster-whisper y numpy). Probar:
+       python oido_pc.py
+   Tiene que decir "El oido del amigo escucha en el puerto 8071".
+   Si voz.py carga el modelo desde otra carpeta (download_root), se puede copiar esa linea en el
+   WhisperModel(...) de oido_pc.py para no bajarlo de nuevo.
+3. Firewall de Windows: permitir Python en redes privadas (aparece el cartel la primera vez: "Permitir"),
+   o abrir el puerto TCP 8071 de entrada en redes privadas.
+4. Que arranque solo: agregar al arranque (como capsulito-ojo.cmd) un .cmd con
+       start "" /min pythonw oido_pc.py
+   (en la carpeta de capsulito-pc).
+5. Probar desde otra maquina de la casa: http://<IP de la PC>:8071/salud  ->  {"ok": true}
+
+En el celular: amigo.json con "oido_url": "http://<IP de la PC>:8071". Si no esta, el panel prueba el
+puerto 8071 de la PC de "local_url".

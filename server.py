@@ -1044,6 +1044,64 @@ def pensar(sistema, mensajes):
                        "Falta configurar el cerebro en amigo.json")
 
 
+# La botonera manda lo que le dijiste (WAV) a /api/voz y acá se pasa a texto: primero la PC de la casa
+# (pc/oido_pc.py, Whisper, en "oido_url" de amigo.json o en el puerto 8071 de la PC del cerebro) y, si está
+# apagada o falla, Gemini con la misma clave del cerebro. Devuelve (texto, quién lo entendió).
+OIDO_CAIDO = {"hasta": 0}
+
+
+def url_oido(cfg):
+    if cfg.get("oido_url"):
+        return cfg["oido_url"].rstrip("/")
+    if cfg.get("local_url"):
+        return f"http://{urllib.parse.urlparse(cfg['local_url']).hostname}:8071"
+    return ""
+
+
+def oir_pc(url, wav):
+    if time.time() < OIDO_CAIDO["hasta"]:
+        raise RuntimeError("la PC no respondió hace poco")
+    host = urllib.parse.urlparse(url)
+    try:
+        socket.create_connection((host.hostname, host.port or 80), timeout=2).close()
+    except OSError:
+        OIDO_CAIDO["hasta"] = time.time() + 30
+        raise RuntimeError("la PC no está prendida")
+    req = urllib.request.Request(f"{url}/voz/transcribir", data=wav, headers={"Content-Type": "audio/wav"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r).get("texto", "")
+
+
+def oir_gemini(cfg, wav):
+    import base64
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
+    cuerpo = {"contents": [{"role": "user", "parts": [
+        {"text": "Transcribí textual lo que dice esta grabación, en español rioplatense. Respondé solo con el texto, "
+                 "sin comillas ni comentarios. Si no se entiende nada o no habla nadie, respondé vacío."},
+        {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(wav).decode()}}]}],
+        "generationConfig": {"maxOutputTokens": 800}}
+    d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, 30)
+    return "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []))
+
+
+def oir(wav):
+    cfg = cargar_amigo()
+    errores = []
+    orden = []
+    if url_oido(cfg):
+        orden.append(("pc", lambda: oir_pc(url_oido(cfg), wav)))
+    if cfg.get("gemini_key"):
+        orden.append(("gemini", lambda: oir_gemini(cfg, wav)))
+    for nombre, usar in orden:
+        try:
+            return usar().strip().strip('"'), nombre
+        except Exception as e:
+            errores.append(f"{nombre}: {e}")
+            anotar(f"amigo: no pude pasar la voz a texto con {nombre}: {e}")
+    raise RuntimeError("No tengo oído disponible (" + "; ".join(errores) + ")" if errores else
+                       "Falta configurar el oído en amigo.json")
+
+
 def guardar_charla(pregunta, respuesta, cerebro, modelo, acciones):
     """Cada intercambio queda guardado: es el material para entrenar el modelo propio del amigo. Devuelve su id."""
     ident = uuid.uuid4().hex[:12]
@@ -1308,6 +1366,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(cuerpo)
 
     def do_POST(self):
+        if self.path == "/api/voz":   # la botonera manda un WAV con lo que le dijiste; devuelve {"texto": ...}
+            try:
+                wav = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if len(wav) < 1000 or wav[:4] != b"RIFF":
+                    return self._json({"error": {"message": "eso no es una grabación"}}, 400)
+                texto, oido = oir(wav)
+                return self._json({"texto": texto, "oido": oido})
+            except Exception as e:
+                return self._json({"error": {"message": str(e)}}, 500)
         try:
             largo = int(self.headers.get("Content-Length", 0))
             cuerpo = json.loads(self.rfile.read(largo) or b"{}")

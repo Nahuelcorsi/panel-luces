@@ -13,7 +13,7 @@
 // Amigo: dos ojitos y frases fijas que van al mismo cerebro del panel (/cerebro); contesta en pantalla
 //        y con ruiditos de robot (nunca con palabras).
 // Botón para hablar (P6 del expansor 0 a GND): desde cualquier pestaña lleva al amigo; mientras lo
-//        mantenés apretado muestra cuánto oye el micrófono (MAX9814 en IO35). Todavía no entiende palabras.
+//        mantenés apretado graba (MAX9814 en IO35) y el panel lo pasa a texto para el cerebro (/api/voz).
 // Parlante en el conector SPEAK (el amplificador de la placa lo maneja el GPIO26).
 //
 // Las fuentes incluidas no tienen tildes ni ñ: los textos en pantalla van sin acentos.
@@ -882,13 +882,15 @@ const char* EMOCIONES[] = {"neutral", "feliz", "triste", "sorprendido", "enojado
 const int N_EMOCIONES = 10;
 
 struct {
-  String respuesta = "Toca una frase de abajo y te contesto. Mantene el boton de hablar para probar el microfono.";
+  String respuesta = "Toca una frase de abajo, o mantene apretado el boton de hablar y decime algo.";
   String emocion = "feliz";
   bool pensando = false;
   String pregunta[2], contesto[2];   // las 2 últimas charlas, para que siga el hilo
   int nCharlas = 0;
+  String dijiste;                    // lo que le dijiste por el micrófono, ya pasado a texto (para mostrarlo)
+  bool oyendo = false;               // el panel está pasando tu grabación a texto
 } amigo;
-int nivelMic = -1;   // 0-100 mientras está apretado el botón para hablar; -1 = suelto
+volatile int nivelMic = -1;   // 0-100 mientras graba (botón para hablar apretado); -1 = no está grabando
 
 String emocionDe(const String& t) {
   int a = t.indexOf('['), b = t.indexOf(']');
@@ -923,10 +925,9 @@ String paraPantalla(String t) {
   return s;
 }
 
-// Tarea de un solo uso: el cerebro puede tardar hasta un minuto (si la PC tiene que cargar el modelo),
-// así que no va en la tarea "red", que tiene que seguir mandando lo de las luces
-void tareaAmigo(void* param) {
-  int cual = (int)(intptr_t)param;
+// Le manda una frase al cerebro y deja la respuesta en amigo. Tarda: se llama desde una tarea aparte
+// (el cerebro puede tardar hasta un minuto si la PC tiene que cargar el modelo), nunca desde la tarea "red".
+void charlarConCerebro(const String& frase) {
   JsonDocument pedido;
   JsonArray mensajes = pedido["mensajes"].to<JsonArray>();
   xSemaphoreTake(candado, portMAX_DELAY);
@@ -942,7 +943,7 @@ void tareaAmigo(void* param) {
   xSemaphoreGive(candado);
   JsonObject yo = mensajes.add<JsonObject>();
   yo["role"] = "user";
-  yo["content"] = FRASES[cual][1];
+  yo["content"] = frase;
   String cuerpo;
   serializeJson(pedido, cuerpo);
 
@@ -971,7 +972,7 @@ void tareaAmigo(void* param) {
       amigo.contesto[0] = amigo.contesto[1];
       amigo.nCharlas = 1;
     }
-    amigo.pregunta[amigo.nCharlas] = FRASES[cual][1];
+    amigo.pregunta[amigo.nCharlas] = frase;
     amigo.contesto[amigo.nCharlas++] = texto;
     if (doc["acciones"].size()) pedirLuces = true;
   } else {
@@ -988,6 +989,12 @@ void tareaAmigo(void* param) {
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
   xSemaphoreGive(candado);
   sonar(S_EMOCION + e);                     // contesta también con su ruidito
+}
+
+// Tarea de un solo uso para las frases fijas
+void tareaAmigo(void* param) {
+  int cual = (int)(intptr_t)param;
+  charlarConCerebro(FRASES[cual][1]);
   vTaskDelete(nullptr);
 }
 
@@ -995,12 +1002,143 @@ void preguntarAmigo(int cual) {   // se llama con el candado tomado
   if (amigo.pensando) return;
   amigo.pensando = true;
   amigo.emocion = "pensando";
+  amigo.dijiste = "";
   sucio = true;
   if (xTaskCreatePinnedToCore(tareaAmigo, "amigo", 10240, (void*)(intptr_t)cual, 1, nullptr, 0) != pdPASS) {
     amigo.pensando = false;
     amigo.emocion = "triste";
     amigo.respuesta = "No me alcanza la memoria para pensar. Reiniciame.";
   }
+}
+
+// ---- Hablarle por el micrófono ----
+// Mientras está apretado el botón para hablar (5 s como mucho) graba a 8000 muestras por segundo, después manda
+// la grabación al panel (/api/voz), que la pasa a texto (la PC con Whisper o, si está apagada, Gemini), y ese
+// texto va al cerebro igual que las frases fijas.
+const int MUESTRAS_POR_SEG = 8000, MAX_SEGUNDOS = 5, CABECERA_WAV = 44;
+TaskHandle_t tareaOido = nullptr;
+volatile bool grabando = false;
+
+// Un reloj de la placa avisa 8000 veces por segundo que toca leer el micrófono
+void ARDUINO_ISR_ATTR ticMic() {
+  BaseType_t otraTarea = pdFALSE;
+  if (tareaOido) vTaskNotifyGiveFromISR(tareaOido, &otraTarea);
+  portYIELD_FROM_ISR(otraTarea);
+}
+
+void cabeceraWav(uint8_t* w, uint32_t bytes) {   // WAV mono de 16 bits
+  auto u32 = [&](int i, uint32_t v) { for (int k = 0; k < 4; k++) w[i + k] = v >> (8 * k); };
+  auto u16 = [&](int i, uint16_t v) { w[i] = v; w[i + 1] = v >> 8; };
+  memcpy(w, "RIFF", 4); u32(4, 36 + bytes); memcpy(w + 8, "WAVEfmt ", 8);
+  u32(16, 16); u16(20, 1); u16(22, 1); u32(24, MUESTRAS_POR_SEG); u32(28, MUESTRAS_POR_SEG * 2); u16(32, 2); u16(34, 16);
+  memcpy(w + 36, "data", 4); u32(40, bytes);
+}
+
+void noTeEntendi(const String& emocion, const String& texto) {
+  xSemaphoreTake(candado, portMAX_DELAY);
+  amigo.pensando = amigo.oyendo = false;
+  amigo.emocion = emocion;
+  amigo.respuesta = texto;
+  amigo.dijiste = "";
+  ultimoUso = millis();
+  sucio = true;
+  xSemaphoreGive(candado);
+  sonar(S_EMOCION + (emocion == "triste" ? 2 : 3));
+}
+
+void tareaHablar(void*) {
+  // Lugar para la grabación (5 s = 80 KB); si no hay tanta memoria libre de un saque, graba menos
+  const size_t RESERVA = 50000;   // lo que tiene que quedar para el WiFi y el pedido al panel
+  int maximo = MUESTRAS_POR_SEG * MAX_SEGUNDOS;
+  size_t libre = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  if (libre < RESERVA + CABECERA_WAV + 2 * maximo)
+    maximo = libre > RESERVA + CABECERA_WAV + MUESTRAS_POR_SEG ? (libre - RESERVA - CABECERA_WAV) / 2 : 0;
+  uint8_t* wav = maximo ? (uint8_t*)malloc(CABECERA_WAV + 2 * maximo) : nullptr;
+  int n = 0;
+  if (wav) {
+    int16_t* m = (int16_t*)(wav + CABECERA_WAV);
+    long suma = 0;
+    int bajo = 4095, alto = 0, enVentana = 0;
+    tareaOido = xTaskGetCurrentTaskHandle();
+    hw_timer_t* reloj = timerBegin(1000000);
+    timerAttachInterrupt(reloj, &ticMic);
+    timerAlarm(reloj, 1000000 / MUESTRAS_POR_SEG, true, 0);
+    while (n < maximo && hablarApretado) {
+      uint32_t tics = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
+      if (!tics) continue;
+      int s = analogRead(PIN_MIC);
+      for (uint32_t k = 0; k < tics && n < maximo; k++) { m[n++] = s; suma += s; }   // si se atrasó, repite la muestra
+      if (s < bajo) bajo = s;
+      if (s > alto) alto = s;
+      if (++enVentana >= MUESTRAS_POR_SEG / 20) {   // cada 50 ms, la barra
+        nivelMic = constrain((alto - bajo) / 20, 0, 100);
+        bajo = 4095; alto = 0; enVentana = 0;
+      }
+    }
+    timerEnd(reloj);
+    tareaOido = nullptr;
+    // Se le saca el nivel de base (el MAX9814 deja la señal en ~1,25 V) y se pasa de 12 a 16 bits
+    int media = n ? suma / n : 0;
+    for (int i = 0; i < n; i++) m[i] = constrain((m[i] - media) * 16, -32767, 32767);
+    cabeceraWav(wav, 2 * n);
+  }
+  nivelMic = -1;
+  vTaskPrioritySet(nullptr, 1);   // lo que sigue es esperar al panel: sin apuro
+
+  if (!wav) {
+    noTeEntendi("triste", "No me alcanza la memoria para escucharte. Reiniciame.");
+  } else if (n < MUESTRAS_POR_SEG / 2) {   // menos de medio segundo: fue un toque nomás, solo para venir a esta pestaña
+    free(wav);
+  } else {
+    xSemaphoreTake(candado, portMAX_DELAY);
+    amigo.pensando = amigo.oyendo = true;
+    amigo.emocion = "pensando";
+    amigo.dijiste = "";
+    sucio = true;
+    xSemaphoreGive(candado);
+
+    HTTPClient http;
+    http.setConnectTimeout(3000);
+    http.setTimeout(40000);
+    int codigo = -1;
+    String respuesta;
+    if (http.begin(String(PANEL) + "/api/voz")) {
+      http.addHeader("Content-Type", "audio/wav");
+      codigo = http.POST(wav, CABECERA_WAV + 2 * n);
+      if (codigo > 0) respuesta = http.getString();
+      http.end();
+    }
+    free(wav);
+    Serial.printf("Voz -> %d\n", codigo);
+    JsonDocument doc;
+    bool leido = respuesta.length() && !deserializeJson(doc, respuesta);
+    String texto = doc["texto"] | "";
+    texto.trim();
+    String error = doc["error"]["message"] | "";
+    if (codigo == 200 && leido && texto.length()) {
+      xSemaphoreTake(candado, portMAX_DELAY);
+      amigo.oyendo = false;
+      amigo.dijiste = paraPantalla(texto);
+      sucio = true;
+      xSemaphoreGive(candado);
+      charlarConCerebro(texto);
+    } else if (codigo == 200 && leido) {
+      noTeEntendi("sorprendido", "No te entendi. Proba de nuevo, hablando cerca del microfono.");
+    } else if (error.length()) {
+      noTeEntendi("triste", "No pude entenderte: " + paraPantalla(error));
+    } else {
+      noTeEntendi("triste", "No pude mandar lo que dijiste al panel (" + String(codigo) + ").");
+    }
+  }
+  grabando = false;
+  vTaskDelete(nullptr);
+}
+
+void empezarAGrabar() {   // se llama con el candado tomado
+  if (grabando || amigo.pensando) return;
+  grabando = true;
+  // Prioridad alta y en el núcleo 1: las perillas siguen solas en el 0
+  if (xTaskCreatePinnedToCore(tareaHablar, "hablar", 12288, nullptr, 5, nullptr, 1) != pdPASS) grabando = false;
 }
 
 // Cambia cada vez que la cara tiene que moverse (parpadeo, puntitos de "pensando"), para redibujar solo ahí
@@ -1290,16 +1428,21 @@ void dibujarJuego() {
 void dibujarAmigo() {
   int cuadro = cuadroAmigo(millis());   // la cara la pone ponerCara(), aparte
   g->fillRoundRect(134, 6, 180, 150, 12, TARJETA);
-  if (nivelMic >= 0) {                  // botón para hablar apretado: cuánto oye el micrófono
+  int nivel = nivelMic;
+  if (nivel >= 0) {                     // grabando: cuánto oye el micrófono
     texto("Te escucho...", 144, 16, &fonts::FreeSansBold9pt7b, TEXTO);
     g->fillRoundRect(144, 48, 160, 16, 6, PISTA);
-    g->fillRoundRect(144, 48, nivelMic * 160 / 100, 16, 6, nivelMic > 85 ? 0xff5a5a : OJO);
-    parrafo("Habla o aplaudi: la barra tiene que moverse. Todavia no entiendo palabras.", 143, 76, 164, 4,
+    g->fillRoundRect(144, 48, nivel * 160 / 100, 16, 6, nivel > 85 ? 0xff5a5a : OJO);
+    parrafo("Habla cerca del microfono y solta el boton cuando termines (5 segundos como mucho).", 143, 76, 164, 4,
             &fonts::Font2, TENUE);
   } else if (amigo.pensando) {
-    String puntos = "Pensando";
+    String puntos = amigo.oyendo ? "Escuchando" : "Pensando";
     for (int i = 0; i < cuadro - 10; i++) puntos += ".";
     texto(puntos, 144, 16, &fonts::FreeSans9pt7b, TENUE);
+    if (amigo.dijiste.length()) parrafo("Vos: " + amigo.dijiste, 143, 40, 164, 5, &fonts::Font2, TEXTO);
+  } else if (amigo.dijiste.length()) {   // lo que dijiste, chiquito arriba, y la respuesta abajo
+    parrafo("Vos: " + amigo.dijiste, 143, 12, 164, 2, &fonts::Font2, TENUE);
+    parrafo(amigo.respuesta, 143, 46, 164, 5, &fonts::FreeSans9pt7b, TEXTO);
   } else {
     parrafo(amigo.respuesta, 143, 13, 164, 7, &fonts::FreeSans9pt7b, TEXTO);
   }
@@ -1663,39 +1806,21 @@ void revisarTactil() {
   tocando = hay;
 }
 
-// Cuánto oye el micrófono (0-100): la diferencia entre lo más alto y lo más bajo en unos 8 ms.
-// El MAX9814 deja la señal alrededor de 1,25 V; hablando cerca se mueve más o menos 1 V.
-int medirMic() {
-  int bajo = 4095, alto = 0;
-  for (int i = 0; i < 64; i++) {
-    int s = analogRead(PIN_MIC);
-    if (s < bajo) bajo = s;
-    if (s > alto) alto = s;
-    delayMicroseconds(100);
-  }
-  return constrain((alto - bajo) / 20, 0, 100);
-}
-
 void revisarHablar() {   // se llama con el candado tomado
   static bool antes = false;
-  static unsigned long tMedida = 0;
-  if (apretonesHablar) {                     // desde cualquier pestaña, al amigo
+  static int nivelDibujado = -1;
+  if (apretonesHablar) {                     // desde cualquier pestaña, al amigo, y empieza a grabar
     apretonesHablar = 0;
     despertar();
     if (pagina != AMIGO) { pagina = AMIGO; calentarAmigo = true; }
     sonar(S_BOTON);
+    empezarAGrabar();
     sucio = true;
   }
   bool apretado = hablarApretado;
-  unsigned long t = millis();
-  if (apretado && pagina == AMIGO && t - tMedida > 40) {
-    tMedida = t;
-    ultimoUso = t;
-    int n = medirMic();
-    if (n != nivelMic) { nivelMic = n; sucio = true; }
-  }
+  if (grabando) ultimoUso = millis();
+  if (nivelMic != nivelDibujado) { nivelDibujado = nivelMic; sucio = true; }   // la barra la mueve la tarea que graba
   if (!apretado && antes) {
-    nivelMic = -1;
     sonar(S_SOLTAR);
     sucio = true;
   }
