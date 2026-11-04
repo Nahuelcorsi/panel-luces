@@ -9,6 +9,8 @@
 // el nivel sube y baja despacito, para que no haga "tuc".
 //
 // Uso: prepararSonido() una vez en setup(); después sonar(S_HOLA), sonar(S_BOTON), sonar(S_EMOCION + n)...
+// y charlar(texto, n) para que "diga" una frase en idioma robot (un bip por pedacito); bipAhora() dice cuál de
+// esos bips se está oyendo en este momento (para mover los ojitos al ritmo).
 #pragma once
 #include <driver/dac_continuous.h>
 
@@ -22,7 +24,8 @@
 
 // S_EMOCION + n = la emoción n de EMOCIONES[] del .ino:
 // neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guino, cafe
-enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_HOLA, S_EMOCION };
+// S_CHARLA + n = la última frase de charlar(), con el timbre de la emoción n
+enum Sonido { S_BOTON, S_SOLTAR, S_ALARMA, S_HOLA, S_PRENDER, S_APAGAR, S_EMOCION, S_CHARLA = S_EMOCION + 10 };
 
 namespace sonidos {
 
@@ -55,6 +58,49 @@ struct Frase {
 inline float azar(float a, float b) { return a + (b - a) * (esp_random() / 4294967295.0f); }
 inline int azarEntero(int a, int b) { return a + (int)(esp_random() % (uint32_t)(b - a + 1)); }
 
+// ---- charla en idioma robot (como bips.charla de la página) ----
+// Un bip por cada 2 o 3 vocales, con el timbre de la emoción; una pregunta termina subiendo y una
+// exclamación, más fuerte. El texto lo deja charlar() acá y lo lee la tarea.
+char textoCharla[256];
+portMUX_TYPE muxCharla = portMUX_INITIALIZER_UNLOCKED;
+const int MAX_BIPS = 16;
+// Cuándo se oye cada bip (en millis), para los ojitos: lo llena la tarea al armar la charla
+volatile unsigned long bipDesde[MAX_BIPS], bipHasta[MAX_BIPS];
+volatile int nBips = 0;
+
+void armarCharla(int emocion, Frase& f) {
+  // {tono base, forma}: neutral, feliz, triste, sorprendido, enojado, pensando, dormido, enamorado, guiño, café
+  static const float BASE[] = {850, 1000, 450, 1200, 220, 700, 350, 1100, 1000, 800};
+  static const Forma FORMA[] = {SENO, TRIANGULO, SENO, TRIANGULO, SIERRA, SENO, SENO, SENO, CUADRADA, SENO};
+  char t[sizeof textoCharla];
+  portENTER_CRITICAL(&muxCharla);
+  memcpy(t, textoCharla, sizeof t);
+  portEXIT_CRITICAL(&muxCharla);
+  int e = emocion >= 0 && emocion < 10 ? emocion : 0, vocales = 0, largo = strlen(t);
+  bool enVocal = false;
+  for (int i = 0; i < largo; i++) {
+    bool v = strchr("aeiouAEIOU", t[i]) != nullptr;
+    if (v && !enVocal) vocales++;
+    enVocal = v;
+  }
+  int fin = largo;
+  while (fin > 0 && (t[fin - 1] == ' ' || t[fin - 1] == '.')) fin--;
+  bool pregunta = fin > 0 && t[fin - 1] == '?', grita = fin > 0 && t[fin - 1] == '!';
+  int n = constrain((int)roundf(vocales / 2.5f), 2, MAX_BIPS);
+  float vol = FORMA[e] == SIERRA || FORMA[e] == CUADRADA ? 0.55f : 0.75f;
+  for (int i = 0; i < n; i++) {
+    bool ultimo = i == n - 1;
+    float f0 = BASE[e] * azar(0.75f, 1.35f), f1 = ultimo && pregunta ? f0 * 1.8f : f0 * azar(0.85f, 1.25f);
+    int dur = azarEntero(50, 110) * (ultimo && pregunta ? 2 : 1);
+    int pausa = azar(0, 1) < 0.2f ? azarEntero(80, 140) : azarEntero(15, 40);   // de vez en cuando, como una coma
+    f.agregar(f0, f1, dur, FORMA[e], ultimo && grita ? fminf(1, vol * 1.4f) : vol, 0, 6, pausa);
+  }
+}
+
+// El "idioma" de un número de sonido: S_CHARLA + n es una charla, todo lo demás una frase fija
+void armar(int cual, Frase& f);
+bool esCharla(int cual) { return cual >= S_CHARLA && cual < S_CHARLA + 10; }
+
 // ---- las frases de cada sonido (las mismas ideas que bips.js, con un poco más de vida) ----
 void armar(int cual, Frase& f) {
   switch (cual) {
@@ -72,6 +118,14 @@ void armar(int cual, Frase& f) {
       break;
     case S_SOLTAR:   // "bup" que baja: "listo"
       f.agregar(azar(1700, 1900), 850, 80, SENO, 0.7f, 0, 4);
+      break;
+    case S_PRENDER:  // "bu-dí!": dos notas que suben, la luz se prendió
+      f.agregar(660, 880, 60, TRIANGULO, 0.7f, 0, 4, 20);
+      f.agregar(1320, 1760, 90, SENO, 0.75f, 20, 4);
+      break;
+    case S_APAGAR:   // "dí-bu": dos notas que bajan, se apagó
+      f.agregar(1320, 1100, 60, SENO, 0.7f, 0, 4, 20);
+      f.agregar(700, 440, 110, TRIANGULO, 0.6f, 0, 4);
       break;
     case S_ALARMA:   // sirenita amable: sube y baja, cuatro veces, cada vez más arriba
       for (int i = 0; i < 4; i++) {
@@ -147,7 +201,8 @@ void armar(int cual, Frase& f) {
       f.agregar(620, 470, 480, SENO, 0.7f, 9, 60);
       break;
     default:
-      armar(S_EMOCION, f);
+      if (esCharla(cual)) armarCharla(cual - S_CHARLA, f);
+      else armar(S_EMOCION, f);
   }
 }
 
@@ -249,10 +304,26 @@ void tarea(void*) {
     if (!prenderDac()) { Serial.println("No se pudo prender el parlante (DAC)"); continue; }
     lleno = 0;
     rampa(0, 128, 60);                                  // de 0 al medio, despacito
+    unsigned long escritas = TASA * 60 / 1000;          // muestras ya mandadas (la rampa), para saber cuándo se oye cada cosa
+    unsigned long inicio = millis();
     do {                                                // si llegaron más mientras tanto, van seguidos
       frase.cuantas = 0;
       armar(cual, frase);
-      for (int i = 0; i < frase.cuantas; i++) tocarNota(frase.n[i]);
+      if (esCharla(cual)) {                             // anota cuándo se va a oír cada bip (para los ojitos)
+        unsigned long t = inicio + escritas * 1000 / TASA;
+        int n = frase.cuantas < MAX_BIPS ? frase.cuantas : MAX_BIPS;
+        for (int i = 0; i < n; i++) {
+          bipDesde[i] = t;
+          bipHasta[i] = t + frase.n[i].ms;
+          t += frase.n[i].ms + frase.n[i].despues;
+        }
+        nBips = n;
+      }
+      for (int i = 0; i < frase.cuantas; i++) {
+        tocarNota(frase.n[i]);
+        escritas += TASA * (frase.n[i].ms + frase.n[i].despues) / 1000;
+      }
+      escritas += TASA / 25;
       for (int i = 0; i < TASA / 25; i++) mandar(128);  // 40 ms de aire entre frase y frase
     } while (xQueueReceive(cola, &cual, 0) == pdTRUE);
     rampa(128, 0, 60);                                  // y de vuelta a 0
@@ -266,6 +337,24 @@ void tarea(void*) {
 // Desde cualquier lado: anota el sonido y sigue (si ya hay varios esperando, este no suena)
 inline void sonar(int cual) {
   if (sonidos::cola) xQueueSend(sonidos::cola, &cual, 0);
+}
+
+// Que "diga" el texto en idioma robot, con el timbre de la emoción n (0-9). El texto no se pronuncia: solo
+// cuenta su largo y si termina en pregunta o exclamación.
+inline void charlar(const String& texto, int emocion) {
+  portENTER_CRITICAL(&sonidos::muxCharla);
+  strncpy(sonidos::textoCharla, texto.c_str(), sizeof sonidos::textoCharla - 1);
+  sonidos::textoCharla[sizeof sonidos::textoCharla - 1] = 0;
+  portEXIT_CRITICAL(&sonidos::muxCharla);
+  sonar(S_CHARLA + emocion);
+}
+
+// Qué bip de la última charla se está oyendo ahora (0, 1, 2...), o -1 si ninguno
+inline int bipAhora() {
+  unsigned long t = millis();
+  for (int i = 0; i < sonidos::nBips; i++)
+    if (t >= sonidos::bipDesde[i] && t < sonidos::bipHasta[i]) return i;
+  return -1;
 }
 
 // Una vez, en setup()

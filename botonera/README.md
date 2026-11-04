@@ -87,7 +87,7 @@ La carga se hace enchufando un cable USB-C al TP4056: la luz roja indica que est
 
 ## Antes de cargar el programa
 
-1. **IP fija para el celular.** La botonera busca el panel en una dirección fija. En el router, reservá la IP del celular (suele estar en "DHCP" → "Reserva de direcciones"). La IP la ves en Termux con `ifconfig` o en Ajustes → WiFi.
+1. **IP del celular.** La botonera arranca buscando el panel en la IP de `config.h`. Si el celu cambia de IP, la botonera lo busca sola en la red de la casa y se acuerda de la nueva, así que no hace falta recompilar. Igual conviene reservar la IP del celular en el router (suele estar en "DHCP" → "Reserva de direcciones"). La IP la ves en Termux con `ifconfig` o en Ajustes → WiFi.
 2. Probá desde la PC que `http://IP-DEL-CELULAR:8080` abra el panel. Si abre, la botonera también va a poder.
 
 ## Cargar el programa (Arduino IDE)
@@ -97,8 +97,18 @@ La carga se hace enchufando un cable USB-C al TP4056: la luz roja indica que est
 3. Herramientas → Placa → Gestor de placas: instalar **esp32** (de Espressif).
 4. Herramientas → Gestionar bibliotecas: instalar **LovyanGFX** y **ArduinoJson** (versión 7).
 5. Abrir `botonera/botonera.ino`. Copiar `config.example.h` como `config.h` (en la misma carpeta) y completar WiFi e IP del panel.
-6. Placa: **ESP32 Dev Module**. Puerto: el COM que aparece al enchufarla. Si no aparece ningún COM, falta el driver **CH340** (buscalo como "CH340 driver Windows").
+6. Placa: **ESP32 Dev Module**. Herramientas → Partition Scheme: **Minimal SPIFFS (1.9MB APP with OTA)** (hace falta para poder cargarla por WiFi). Puerto: el COM que aparece al enchufarla. Si no aparece ningún COM, falta el driver **CH340** (buscalo como "CH340 driver Windows").
 7. Subir. La primera vez pide **calibrar el táctil**: tocá la punta de cada flecha con la uña o un palito. Queda guardado. Para repetirlo, tocá la pantalla cuando al prender diga "Toca la pantalla para calibrar" (o prendela con la perilla 1 apretada).
+
+## Cargar el programa por WiFi (sin cable)
+
+Después de cargarla una vez por USB con el esquema **Minimal SPIFFS (1.9MB APP with OTA)**, las próximas veces se puede cargar por WiFi:
+
+1. La botonera prendida y conectada al WiFi, y la PC en la misma red.
+2. En el Arduino IDE: Herramientas → Puerto. Abajo, en "Puertos de red", aparece **botonera at 192.168.0.x**. Elegila.
+3. Subir, como siempre. La botonera muestra "Cargando programa nuevo..." con una barrita, y al terminar se reinicia sola.
+
+Si no aparece en "Puertos de red": esperá un minuto con el IDE abierto, revisá que la PC esté en el mismo WiFi y que el firewall de Windows deje pasar al Arduino IDE. Con `#define OTA_CLAVE "algo"` en `config.h` el IDE te pide esa clave antes de cargar.
 
 ## Si algo no anda
 
@@ -107,10 +117,10 @@ La carga se hace enchufando un cable USB-C al TP4056: la luz roja indica que est
 - **Las perillas van al revés**: `PERILLA_AL_REVES 1`. **Saltan de a dos pasos**: `PASOS_POR_CLIC 2`.
 - **"Encontre 1 de 2 expansores"**: revisá los 4 cables entre módulos y que el segundo tenga el puente `A0` cambiado.
 - **Una perilla maneja la luz equivocada o no hace nada**: revisá que el nombre en `PERILLAS` (en `config.h`) sea igual al del panel.
-- **"Buscando luces..." para siempre**: la IP del panel en `config.h` está mal o el celular cambió de IP.
+- **"Uy! No encuentro al celu del panel"**: el celular está apagado, sin WiFi o el server no está corriendo. La botonera lo sigue buscando sola, también si cambió de IP.
+- **El brillo no acompaña la luz del cuarto**: en el monitor serie (115200) aparece "Sensor de luz N" cada 10 s. Anotá el número con el cuarto iluminado y a oscuras y ponelos en `LUZ_CLARO` y `LUZ_OSCURO` en `botonera.ino`.
 - **"Sin datos del clima"**: el servidor todavía no tiene `lugares.json` configurado.
 
 ## Ideas para después
 
-- Usar el sensor de luz que trae la placa (abajo de la pantalla) para ajustar el brillo solo.
 - Un parlantito en el conector `SPEAK` para que la alarma también suene.

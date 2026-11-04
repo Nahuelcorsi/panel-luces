@@ -17,11 +17,16 @@
 // Botón para hablar (P6 del expansor 0 a GND): desde cualquier pestaña lleva al amigo; mientras lo
 //        mantenés apretado graba (MAX9814 en IO35) y el panel lo pasa a texto para el cerebro (/api/voz).
 // Parlante en el conector SPEAK (el amplificador de la placa lo maneja el GPIO26).
+// Pantalla: el brillo sigue la luz del cuarto (sensor de la placa, IO34); al minuto sin usarla se oscurece
+//        y a los 5 minutos se apaga. Cualquier perilla, toque, el botón o la alarma la despiertan.
+// Se puede cargar por WiFi (ArduinoOTA, se llama "botonera"): ver el README.
+// Si el celu del panel cambia de IP, la botonera lo busca sola en la red y se acuerda de la nueva.
 //
 // Las fuentes incluidas no tienen tildes ni ñ: los textos en pantalla van sin acentos.
 
 #include <Wire.h>
 #include <WiFi.h>
+#include <ArduinoOTA.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
@@ -39,6 +44,7 @@ const gpio_num_t PIN_INT_PERILLAS = GPIO_NUM_35, PIN_INT_TACTIL = GPIO_NUM_36;
 // Botón para hablar: P6 del expansor 0, a GND (apretado = 0). Antes ese pin iba a ver el USB, pero nunca se cableó.
 const int BIT_HABLAR = 6;
 const int PIN_MIC = 35;        // salida OUT del MAX9814 (conector P3)
+const int PIN_LUZ = 34;        // sensor de luz de la placa (más luz en el cuarto = número más bajo)
 // Volumen de los ruiditos: 1 (casi nada) a 128 (al máximo). Se puede poner en config.h.
 #ifndef VOLUMEN
 #define VOLUMEN 20
@@ -130,7 +136,30 @@ enum Pagina { CASITA, MODOS, JUEGO, AMIGO };
 int pagina = CASITA;
 bool sucio = true;              // hay que redibujar
 unsigned long ultimoUso = 0;    // para atenuar la pantalla
-bool atenuada = false;
+bool atenuada = false;          // oscurecida o apagada (el primer toque solo la despierta)
+bool apagada = false;           // pantalla apagada del todo
+
+// ---- dirección del panel ----
+// La última que anduvo (se guarda) o la de config.h. Si el celu cambia de IP, la tarea "red" lo busca en la red.
+char panelUrl[48] = PANEL;
+portMUX_TYPE muxPanel = portMUX_INITIALIZER_UNLOCKED;
+volatile int fallosPanel = 0;   // pedidos seguidos en que el celu no contestó
+volatile bool panelCaido = false;
+
+String urlPanel(const char* ruta) {   // desde cualquier tarea
+  char u[sizeof panelUrl];
+  portENTER_CRITICAL(&muxPanel);
+  memcpy(u, panelUrl, sizeof u);
+  portEXIT_CRITICAL(&muxPanel);
+  return String(u) + ruta;
+}
+
+void anotarPanel(bool contesto) {   // después de cada pedido al panel
+  if (contesto) fallosPanel = 0;
+  else if (fallosPanel < 100) fallosPanel++;
+  bool caido = fallosPanel >= 2;
+  if (caido != panelCaido) { panelCaido = caido; sucio = true; }
+}
 
 // ---- perillas ----
 // Cada PCF8574 tiene 8 pines (P0..P7). Para cada perilla: {expansor, pin} de CLK, DT y SW.
@@ -289,8 +318,21 @@ int tonoDeColor(uint32_t c) {
   return (h + 360) % 360;
 }
 
+// Cartel grande "Prendida" / "Apagada" al hacer clic en una perilla (también va encima de la casita)
+int avisoLuz = -1;
+unsigned long avisoHasta = 0;
+
+void mostrarAviso(int i) {
+  sucio = true;
+  avisoLuz = i;
+  avisoHasta = millis() + 1600;
+  mostrarCartelHasta = 0;   // las cápsulas se esconden: el cartel manda
+  if (pagina != CASITA && pagina != JUEGO) pagina = CASITA;
+}
+
 // Las cápsulas van encima de la casita: si estabas en otra pantalla (menos el juego), se vuelve a ella
 void mostrarCapsulas(int perilla) {
+  avisoHasta = 0;
   sucio = true;
   perillaActiva = perilla;
   mostrarCartelHasta = millis() + 2000;
@@ -315,11 +357,13 @@ bool pedir(const char* ruta, JsonDocument& doc) {
   HTTPClient http;
   http.setConnectTimeout(1500);
   http.setTimeout(8000);          // con 6 luces (y alguna sin conexión) /api/luces tarda 3-5 s; esto corre en la tarea "red", la pantalla no espera
-  if (!http.begin(String(PANEL) + ruta)) return false;
+  String url = urlPanel(ruta);
+  if (!http.begin(url)) return false;
   int codigo = http.GET();
   bool ok = codigo == 200 && !deserializeJson(doc, http.getString());
   http.end();
-  Serial.printf("Panel %s%s -> %d %s\n", PANEL, ruta, codigo, ok ? "ok" : "FALLO");
+  anotarPanel(codigo > 0);   // negativo = ni siquiera contestó (apagado, sin red o con otra IP)
+  Serial.printf("Panel %s -> %d %s\n", url.c_str(), codigo, ok ? "ok" : "FALLO");
   return ok;
 }
 
@@ -349,7 +393,7 @@ void mandarPendientes() {
     HTTPClient http;
     http.setConnectTimeout(1500);
     http.setTimeout(2500);
-    if (!http.begin(String(PANEL) + (grupo ? "/api/grupos/" : "/api/luces/") + id)) continue;
+    if (!http.begin(urlPanel(grupo ? "/api/grupos/" : "/api/luces/") + id)) continue;
     int codigo = http.POST(cuerpo);
     JsonDocument doc;
     bool ok = codigo == 200 && !deserializeJson(doc, http.getString());
@@ -881,7 +925,7 @@ void charlarConCerebro(const String& frase) {
   http.setTimeout(65000);   // lo máximo que acepta
   int codigo = -1;
   String respuesta;
-  if (http.begin(String(PANEL) + "/cerebro")) {
+  if (http.begin(urlPanel("/cerebro"))) {
     http.addHeader("Content-Type", "application/json");
     codigo = http.POST(cuerpo);
     if (codigo > 0) respuesta = http.getString();
@@ -916,8 +960,11 @@ void charlarConCerebro(const String& frase) {
   sucio = true;
   int e = 0;
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
+  String dicho = amigo.respuesta;
+  bool contesto = codigo == 200 && leido && texto.length();
   xSemaphoreGive(candado);
-  sonar(S_EMOCION + e);                     // contesta también con su ruidito
+  sonar(S_EMOCION + e);                     // primero el ruidito de la emoción...
+  if (contesto) charlar(dicho, e);          // ...y después "dice" la respuesta en idioma robot, con los ojitos al ritmo
 }
 
 // Tarea de un solo uso para las frases fijas
@@ -1042,7 +1089,7 @@ void tareaHablar(void*) {
     http.setTimeout(40000);
     int codigo = -1;
     String respuesta;
-    if (http.begin(String(PANEL) + "/api/voz")) {
+    if (http.begin(urlPanel("/api/voz"))) {
       http.addHeader("Content-Type", "audio/wav");
       codigo = http.POST(wav, CABECERA_WAV + n);
       if (codigo > 0) respuesta = http.getString();
@@ -1083,6 +1130,8 @@ void empezarAGrabar() {   // se llama con el candado tomado
 
 // Cambia cada vez que la cara tiene que moverse (parpadeo, puntitos de "pensando"), para redibujar solo ahí
 int cuadroAmigo(unsigned long t) {
+  int bip = bipAhora();
+  if (bip >= 0) return 20 + bip;          // hablando en idioma robot: los ojitos saltan con cada bip
   if (amigo.pensando) return 10 + (t / 400) % 4;
   return (t % 4000) < 150 ? 1 : 0;
 }
@@ -1229,6 +1278,7 @@ void tocarCasita(int x, int y) {   // se llama con el candado tomado
     if (i < 0) return;
     luces[i].encendida = !luces[i].encendida;   // se muestra ya, sin esperar al panel
     mandar(i, luces[i].encendida ? "{\"encendida\":true}" : "{\"encendida\":false}");
+    sonar(luces[i].encendida ? S_PRENDER : S_APAGAR);
     elegida = i;
     return;
   }
@@ -1365,6 +1415,48 @@ void dibujarCapsulas() {
     dibujarCapsula(cuales[j], x, 214 - al, an, al, activa, an + hueco - 4);
     x += an + hueco;
   }
+}
+
+// ---- Cartel "Prendida" / "Apagada" (clic en una perilla) ----
+// Un foquito: prendido con el color de la luz y rayitos alrededor, apagado gris
+void foquito(int cx, int cy, bool prendido, uint32_t color) {
+  if (prendido)
+    for (int a = 0; a < 8; a++) {
+      float r = a * PI / 4;
+      g->fillCircle(cx + (int)(cos(r) * 27), yh(cy + (int)(sin(r) * 27)), 3, AMARILLO);
+    }
+  g->fillCircle(cx, yh(cy), 17, prendido ? color : APAGADA);
+  if (prendido) g->fillCircle(cx - 6, yh(cy - 6), 4, mezcla(color, BLANCO, 150));   // brillito
+  g->fillRoundRect(cx - 8, yh(cy + 14), 16, 12, 4, prendido ? SUAVE : 0xC9BFD3);       // la rosca
+  g->drawFastHLine(cx - 7, yh(cy + 19), 14, BLANCO);
+}
+
+void dibujarAviso() {
+  if (avisoLuz < 0 || avisoLuz >= nLuces) return;
+  Luz& l = luces[avisoLuz];
+  bool prendida = l.encendida;
+  uint32_t color = l.color ? l.color : AMARILLO;
+  g->fillRoundRect(50, yh(66), 220, 132, 26, prendida ? MENTA : APAGADA);   // borde de color
+  g->fillRoundRect(55, yh(71), 210, 122, 22, BLANCO);
+  foquito(110, 130, prendida, color);
+  textoQueEntre(l.nombre, 150, yh(102), 108, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_left);
+  texto(prendida ? "Prendida" : "Apagada", 150, yh(132), &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
+  if (prendida) texto(String(l.brillo) + "%", 150, yh(160), &fonts::Font2, SUAVE, textdatum_t::middle_left);
+}
+
+// ---- Sin conexión: el celu del panel no contesta ----
+void dibujarSinPanel() {
+  g->fillRoundRect(30, yh(56), 260, 160, 26, ROSA);
+  g->fillRoundRect(35, yh(61), 250, 150, 22, BLANCO);
+  // una carita tristona: dos ojitos y la boquita para abajo
+  g->fillRoundRect(64, yh(96), 10, 16, 5, TINTA);
+  g->fillRoundRect(90, yh(96), 10, 16, 5, TINTA);
+  g->drawArc(82, yh(134), 12, 10, 200, 340, TINTA);
+  g->fillCircle(58, yh(118), 4, 0xFFC2D4);   // cachetitos
+  g->fillCircle(106, yh(118), 4, 0xFFC2D4);
+  texto("Uy! No encuentro", 122, yh(94), &fonts::FreeSansBold9pt7b, TINTA);
+  texto("al celu del panel", 122, yh(114), &fonts::FreeSansBold9pt7b, TINTA);
+  parrafo("Lo sigo buscando solito. Fijate que este prendido y con WiFi.", 52, yh(150), 222, 3, &fonts::Font2, SUAVE);
 }
 
 // ---- Modos: elegís cuartos y un modo, y se aplica solo a esos ----
@@ -1569,14 +1661,16 @@ void dibujarZeta(int x, int y, int l) {
 void ponerCara(bool ojosCerrados) {
   int e = 0;
   for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
-  int estado = e * 2 + ojosCerrados;
+  // Mientras "habla": un bip arriba, el siguiente abajo, así parece que dice algo
+  int bip = bipAhora(), salto = bip < 0 ? 0 : bip % 2 ? -5 : 3;
+  int estado = (e * 2 + ojosCerrados) * 3 + (bip < 0 ? 0 : bip % 2 ? 1 : 2);
   if (estado == caraHecha) return;
   lcd.fillRect(CARA_X, CARA_Y, CARA_LADO, CARA_LADO, CREMA);   // alrededor de la carita, el fondo de la casita
   lcd.fillRoundRect(CARA_X + 4, CARA_Y + 14, CARA_LADO - 8, CARA_LADO - 28, 22, PANTALLITA);
   int an = 28, al = 40, dx = 0, dy = 0;
   if (e == 3) { an = 34; al = 48; }          // sorprendido: ojos grandes
   if (e == 5) { dx = 5; dy = -4; }           // pensando: mira arriba a un costado
-  int cx = CARA_X + CARA_LADO / 2 + dx, cy = CARA_Y + CARA_LADO / 2 + dy;
+  int cx = CARA_X + CARA_LADO / 2 + dx, cy = CARA_Y + CARA_LADO / 2 + dy + salto;
   if (e == 6) {                               // dormido: ojos cerrados y dos zetas
     lcd.fillRoundRect(cx - 25 - an / 2, cy - 2, an, 5, 2, OJO);
     lcd.fillRoundRect(cx + 25 - an / 2, cy - 2, an, 5, 2, OJO);
@@ -1716,7 +1810,17 @@ void dibujar() {
   g->fillRect(0, conLienzo ? 0 : yHoja, 320, 204, fondo);
   switch (pagina) {
     case CASITA:
-      if (millis() < mostrarCartelHasta) {   // girando una perilla: la casita atenuada y las cápsulas encima
+      if (panelCaido) {                      // el celu no contesta: la casita atenuada y el aviso encima
+        velo = 170;
+        dibujarCasita();
+        velo = 0;
+        dibujarSinPanel();
+      } else if (millis() < avisoHasta) {    // clic en una perilla: "Prendida" o "Apagada" bien grande
+        velo = 170;
+        dibujarCasita();
+        velo = 0;
+        dibujarAviso();
+      } else if (millis() < mostrarCartelHasta) {   // girando una perilla: la casita atenuada y las cápsulas encima
         velo = 170;
         dibujarCasita();
         velo = 0;
@@ -1752,17 +1856,54 @@ void dibujar() {
 }
 
 // ---- brillo de la pantalla ----
-bool esDeNoche() {
-  struct tm t;
-  if (!getLocalTime(&t, 10)) return false;
-  return t.tm_hour >= 23 || t.tm_hour < 7;
+// Sigue la luz del cuarto (el sensor de la placa): de día a pleno y a oscuras bajito, pero siempre se lee.
+// Al minuto sin usarla se oscurece y a los 5 se apaga; cualquier perilla, toque, el botón o la alarma la despiertan.
+const unsigned long OSCURECER_EN = 60000, APAGAR_EN = 5 * 60000UL;
+const int BRILLO_MIN = 25, BRILLO_MAX = 255;
+// Lo que marca el sensor con el cuarto bien iluminado y a oscuras. Si el brillo no acompaña, mirá en el
+// monitor serie "Sensor de luz" en cada caso y poné esos números acá.
+const int LUZ_CLARO = 60, LUZ_OSCURO = 700;
+float brilloLuz = 200;          // el brillo que pide la luz del cuarto, suavizado
+int brilloPuesto = -1;
+
+int brilloAhora() {
+  if (apagada) return 0;
+  int b = (int)brilloLuz;
+  return atenuada ? constrain(b / 6, 4, 40) : b;
+}
+
+void ponerBrillo() {
+  int b = brilloAhora();
+  if (b == brilloPuesto) return;
+  brilloPuesto = b;
+  lcd.setBrightness(b);
+}
+
+// Cada medio segundo, desde el loop (mientras graba no: el micrófono usa el mismo conversor)
+void medirLuz() {
+  static unsigned long t = 0, tAviso = 0;
+  if (millis() - t < 500 || grabando) return;
+  t = millis();
+  int suma = 0;
+  for (int i = 0; i < 8; i++) suma += analogRead(PIN_LUZ);
+  int v = suma / 8;
+  float pedido = BRILLO_MAX - (float)constrain(v - LUZ_CLARO, 0, LUZ_OSCURO - LUZ_CLARO) * (BRILLO_MAX - BRILLO_MIN) /
+                 (LUZ_OSCURO - LUZ_CLARO);
+  brilloLuz += (pedido - brilloLuz) * 0.15f;   // de a poco, así no salta si pasás la mano por adelante
+  if (millis() - tAviso > 10000) {
+    tAviso = millis();
+    Serial.printf("Sensor de luz %d -> brillo %d\n", v, (int)brilloLuz);
+  }
+  int b = brilloAhora();
+  if (brilloPuesto < 0 || abs(b - brilloPuesto) >= 4 || (b == 0) != (brilloPuesto == 0)) ponerBrillo();
 }
 
 void despertar() {
   ultimoUso = millis();
   if (atenuada) {
-    atenuada = false;
-    lcd.setBrightness(esDeNoche() ? 90 : 255);
+    atenuada = apagada = false;
+    sucio = barraSucia = true;   // apagada no se dibujaba: lo de la pantalla puede haber quedado viejo
+    ponerBrillo();
   }
 }
 
@@ -1852,13 +1993,39 @@ void conectarWifi() {
   WiFi.setTxPower(WIFI_POWER_13dBm);
   WiFi.begin(WIFI_RED, WIFI_CLAVE);
   for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) delay(250);
-  lcd.setBrightness(atenuada ? (esDeNoche() ? 4 : 40) : (esDeNoche() ? 90 : 255));
+  brilloPuesto = -1;
+  ponerBrillo();
+}
+
+// ---- Cargar el programa por WiFi (Arduino IDE: Herramientas > Puerto > "botonera at 192.168.0.x") ----
+// Necesita el esquema de particiones con OTA ("Minimal SPIFFS (1.9MB APP with OTA)"). Con OTA_CLAVE en config.h
+// el IDE pide esa clave antes de cargar.
+void prepararOta() {
+  ArduinoOTA.setHostname("botonera");
+#ifdef OTA_CLAVE
+  ArduinoOTA.setPassword(OTA_CLAVE);
+#endif
+  ArduinoOTA.onStart([]() {
+    despertar();
+    lcd.fillScreen(CREMA);
+    barraSucia = true;
+    texto("Cargando programa nuevo...", 160, 100, &fonts::FreeSansBold9pt7b, TINTA, textdatum_t::middle_center);
+    texto("No la desenchufes", 160, 124, &fonts::Font2, SUAVE, textdatum_t::middle_center);
+    lcd.fillRoundRect(40, 150, 240, 16, 8, APAGADA);
+  });
+  ArduinoOTA.onProgress([](unsigned int hecho, unsigned int total) {
+    if (total) lcd.fillRoundRect(40, 150, constrain((int)(240ULL * hecho / total), 16, 240), 16, 8, MENTA);
+  });
+  ArduinoOTA.onError([](ota_error_t e) {
+    texto("No se pudo cargar (" + String((int)e) + ")", 160, 190, &fonts::Font2, TINTA, textdatum_t::middle_center);
+  });
+  ArduinoOTA.begin();
 }
 
 void setup() {
   delay(300);                  // deja que la corriente se acomode al enchufarla, antes de pedir más
   Serial.begin(115200);
-  Serial.println("Botonera, version del 3/11 (boton para hablar, parlante y microfono de prueba)");
+  Serial.println("Botonera, version del 4/11 (casita, ruiditos nuevos, brillo automatico, carga por WiFi)");
   Serial.printf("Motivo del ultimo reinicio: %d\n", (int)esp_reset_reason());
   Wire.begin(PIN_SDA, PIN_SCL, 400000);
   buscarExpansores();
@@ -1877,6 +2044,9 @@ void setup() {
   }
   Serial.printf("Hoja de dibujo: %d bits, quedan %u bytes libres\n", lienzo.getBuffer() ? (int)lienzo.getColorDepth() : 0, ESP.getFreeHeap());
   prefs.begin("botonera");
+  String guardado = prefs.getString("panel", "");   // la última dirección del celu que anduvo
+  if (guardado.startsWith("http://") && guardado.length() < sizeof panelUrl) strcpy(panelUrl, guardado.c_str());
+  Serial.printf("Panel: %s\n", panelUrl);
   juego.record = prefs.getInt("record", 0);
   inv.record = prefs.getInt("record2", 0);
   cuartosElegidos = prefs.getUChar("modosSel", 0x0F);
@@ -1897,10 +2067,12 @@ void setup() {
   for (int& b : brilloPendiente) b = -1;
   xTaskCreatePinnedToCore(tareaPerillas, "perillas", 4096, nullptr, 2, nullptr, 0);
   analogSetPinAttenuation(PIN_MIC, ADC_11db);   // el micrófono puede llegar hasta unos 3 V
+  analogSetPinAttenuation(PIN_LUZ, ADC_0db);    // el sensor de luz da poquito: así se nota más la diferencia
   prepararSonido();
   sonar(S_HOLA);                                 // ruidito de "hola"
 
   conectarWifi();
+  prepararOta();
   configTzTime("<-03>3", "pool.ntp.org", "time.google.com");   // hora de Argentina
   xTaskCreatePinnedToCore(tareaRed, "red", 12288, nullptr, 1, nullptr, 0);
   lcd.fillScreen(FONDO);
@@ -1973,6 +2145,8 @@ void revisarPerillas() {
       elegida = i;
       luces[i].encendida = !luces[i].encendida;
       mandar(i, luces[i].encendida ? "{\"encendida\":true}" : "{\"encendida\":false}");
+      mostrarAviso(i);                        // bien grande: "Prendida" o "Apagada"
+      sonar(luces[i].encendida ? S_PRENDER : S_APAGAR);
     }
   }
   for (int i = 0; i < nLuces; i++) {
@@ -2083,11 +2257,67 @@ void revisarAlarma() {
   }
 }
 
+// ---- Buscar el celu del panel si cambió de IP ----
+// ¿En esa dirección está el panel? Lo es si /salud contesta con "panel": true (ver server.py)
+bool esElPanel(const String& base) {
+  HTTPClient http;
+  http.setConnectTimeout(300);
+  http.setTimeout(3000);
+  if (!http.begin(base + "/salud")) return false;
+  bool ok = false;
+  if (http.GET() == 200) {
+    JsonDocument doc;
+    ok = !deserializeJson(doc, http.getString()) && (doc["panel"] | false);
+  }
+  http.end();
+  return ok;
+}
+
+// Prueba la dirección de config.h y después toda la red de la casa (del .1 al .254) en el puerto del panel.
+// La que encuentra la guarda, así al prender ya va directo. Tarda medio minuto como mucho (va en la tarea "red").
+bool buscarPanel() {
+  int puerto = 8080;
+  sscanf(PANEL, "http://%*[^:]:%d", &puerto);
+  IPAddress yo = WiFi.localIP();
+  Serial.println("Buscando el celu del panel en la red...");
+  for (int h = 0; h <= 254; h++) {
+    String base;
+    if (h == 0) base = PANEL;   // primero la de config.h
+    else {
+      IPAddress ip(yo[0], yo[1], yo[2], h);
+      if (ip == yo) continue;
+      WiFiClient prueba;            // primero un "¿hay alguien?" rapidito; recién si contesta, se le pregunta bien
+      if (!prueba.connect(ip, puerto, 150)) continue;
+      prueba.stop();
+      base = "http://" + ip.toString() + ":" + puerto;
+    }
+    if (base == urlPanel("") || !esElPanel(base)) continue;
+    portENTER_CRITICAL(&muxPanel);
+    strncpy(panelUrl, base.c_str(), sizeof panelUrl - 1);
+    panelUrl[sizeof panelUrl - 1] = 0;
+    portEXIT_CRITICAL(&muxPanel);
+    Preferences p;
+    p.begin("botonera");
+    p.putString("panel", base);
+    p.end();
+    Serial.printf("Encontre el panel en %s\n", base.c_str());
+    anotarPanel(true);
+    return true;
+  }
+  Serial.println("No encontre el panel en la red");
+  return false;
+}
+
 // Habla con el panel del celular, aparte del loop(), así la pantalla y las perillas nunca se traban
 void tareaRed(void*) {
-  unsigned long tLuces = 0, tClima = 0, tAjustes = 0;
+  unsigned long tLuces = 0, tClima = 0, tAjustes = 0, tBusqueda = 0;
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
+      // El celu no contesta varias veces seguidas: capaz cambió de IP. Se lo busca (cada 2 minutos como mucho)
+      if (fallosPanel >= 3 && (!tBusqueda || millis() - tBusqueda > 120000UL)) {
+        tBusqueda = millis();
+        if (buscarPanel()) tLuces = tClima = tAjustes = 0;   // y se le pide todo de nuevo
+      }
       mandarPendientes();
       if (pedirLuces) { pedirLuces = false; tLuces = 0; }
       if (calentarAmigo) {                 // /salud hace que la PC cargue el modelo de antemano
@@ -2123,6 +2353,7 @@ void loop() {
     sucio = true;
     return;
   }
+  ArduinoOTA.handle();   // si llega un programa nuevo por WiFi, se carga desde acá
 
   xSemaphoreTake(candado, portMAX_DELAY);
   revisarPerillas();
@@ -2154,14 +2385,20 @@ void loop() {
   // A batería y desenchufada: a los 30 s sin uso se duerme del todo
   if (BATERIA && ahora - ultimoUso > 30000 && !girando() && !enchufada()) dormir();
 
-  // Después de 30 s sin usarla, la pantalla baja el brillo (de noche, casi apagada) y vuelve al inicio
-  if (!atenuada && ahora - ultimoUso > 30000) {
+  // Al minuto sin usarla la pantalla se oscurece y vuelve a la casita; a los 5 minutos se apaga
+  if (!atenuada && ahora - ultimoUso > OSCURECER_EN) {
     atenuada = true;
-    lcd.setBrightness(esDeNoche() ? 4 : 40);
+    ponerBrillo();
     if (pagina != CASITA) { pagina = CASITA; sucio = true; }
   }
+  if (atenuada && !apagada && ahora - ultimoUso > APAGAR_EN) {
+    apagada = true;
+    ponerBrillo();
+  }
+  medirLuz();
+  if (avisoHasta && ahora > avisoHasta) { avisoHasta = 0; sucio = true; }
 
-  if (sucio) dibujar();
+  if (sucio && !apagada) dibujar();
   xSemaphoreGive(candado);
   delay(5);
 }
