@@ -47,7 +47,7 @@ const int PIN_MIC = 35;        // salida OUT del MAX9814 (conector P3)
 const int PIN_LUZ = 34;        // sensor de luz de la placa (más luz en el cuarto = número más bajo)
 // Volumen de los ruiditos: 1 (casi nada) a 128 (al máximo). Se puede poner en config.h.
 #ifndef VOLUMEN
-#define VOLUMEN 20
+#define VOLUMEN 28
 #endif
 const int MAX_LUCES = 10;   // luces y grupos del panel
 

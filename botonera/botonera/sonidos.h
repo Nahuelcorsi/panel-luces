@@ -19,7 +19,7 @@
 #endif
 // Volumen de los ruiditos: 1 (casi nada) a 128 (al máximo). Se puede poner en config.h.
 #ifndef VOLUMEN
-#define VOLUMEN 20
+#define VOLUMEN 28
 #endif
 
 // S_EMOCION + n = la emoción n de EMOCIONES[] del .ino:
@@ -242,7 +242,7 @@ void rampa(int de, int a, int ms) {
 void tocarNota(const Nota& nt) {
   int n = TASA * nt.ms / 1000;
   if (n <= 0) return;
-  float amp = VOLUMEN * 2.0f;                       // con VOLUMEN 20, 40 de los 127 que hay para cada lado
+  float amp = VOLUMEN * 2.0f;                       // con VOLUMEN 28, 56 de los 127 que hay para cada lado
   if (amp > 127) amp = 127;
   // Las ondas con puntas (cuadrada, sierra) suenan más fuerte que el seno con el mismo volumen
   if (nt.forma == CUADRADA || nt.forma == SIERRA) amp *= 0.6f;
