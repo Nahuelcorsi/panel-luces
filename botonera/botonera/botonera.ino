@@ -1778,13 +1778,12 @@ int letrasVisibles(const String& s) {
   if (s != tipeo.texto) { tipeo.texto = s; tipeo.desde = millis(); tipeo.atras = 0; }
   int largo = s.length();
   float avance = -1;
-  // Una letra cada 80 ms como mucho (más rápido no se llega a leer). Con bips arranca con el primero y
-  // tampoco se adelanta a ellos; si los bips terminan antes, sigue escribiendo solo.
+  // Una letra cada 80 ms, parejito. Con bips arranca junto con el primero; los bips están repartidos a lo
+  // largo del mismo tiempo (sonidos.h), pero el texto no los espera: si se frenara en cada pausa, iría a los saltos.
   const float MS_POR_LETRA = 80;   // como MS_POR_LETRA_CHARLA de sonidos.h
   if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) {
     unsigned long t0 = sonidos::bipDesde[0];
-    float porTiempo = millis() > t0 ? (millis() - t0) / (MS_POR_LETRA * largo + 1) : 0;
-    avance = fminf(porTiempo, avanceCharla() < 1 ? avanceCharla() : 1);
+    avance = millis() > t0 ? (millis() - t0) / (MS_POR_LETRA * largo + 1) : 0;
   } else if (amigo.charlaN && millis() - tipeo.desde < 2000) avance = 0;          // los bips están por empezar
   if (avance < 0) avance = (millis() - tipeo.desde) / (MS_POR_LETRA * largo + 1);  // sin bips
   return constrain((int)(avance * largo + 0.5f), 0, largo);
@@ -2467,7 +2466,7 @@ void loop() {
     static unsigned long tTipeo = 0;
     int c = cuadroAmigo(ahora);
     if (c != cuadro) { cuadro = c; sucio = true; }
-    if (tipeo.tipeando && ahora - tTipeo >= 40) { tTipeo = ahora; sucio = true; ultimoUso = ahora; }   // va escribiendo
+    if (tipeo.tipeando && ahora - tTipeo >= 30) { tTipeo = ahora; sucio = true; ultimoUso = ahora; }   // va escribiendo
   }
   if (amigo.pensando) ultimoUso = ahora;     // esperando la respuesta, que no se vaya al inicio
 
