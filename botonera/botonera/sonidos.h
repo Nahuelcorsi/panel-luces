@@ -68,6 +68,7 @@ inline int azarEntero(int a, int b) { return a + (int)(esp_random() % (uint32_t)
 char textoCharla[256];
 portMUX_TYPE muxCharla = portMUX_INITIALIZER_UNLOCKED;
 const int MAX_BIPS = 16;
+const int MS_POR_LETRA_CHARLA = 80;   // igual que MS_POR_LETRA del .ino
 // Cuándo se oye cada bip (en millis), para los ojitos: lo llena la tarea al armar la charla
 volatile unsigned long bipDesde[MAX_BIPS], bipHasta[MAX_BIPS];
 volatile int nBips = 0;
@@ -93,13 +94,20 @@ void armarCharla(int emocion, Frase& f) {
   bool pregunta = fin > 0 && t[fin - 1] == '?', grita = fin > 0 && t[fin - 1] == '!';
   int n = constrain((int)roundf(vocales / 2.5f), 2, MAX_BIPS);
   float vol = FORMA[e] == SIERRA || FORMA[e] == CUADRADA ? 0.55f : 0.75f;
+  // Los bips se reparten a lo largo del tiempo que tarda en escribirse el texto en la pantalla (una letra cada
+  // MS_POR_LETRA_CHARLA), así van juntos: se estira la pausa después de cada uno (hasta 600 ms)
+  int total = largo * MS_POR_LETRA_CHARLA, propio = 0;
   for (int i = 0; i < n; i++) {
     bool ultimo = i == n - 1;
     float f0 = BASE[e] * azar(0.75f, 1.35f), f1 = ultimo && pregunta ? f0 * 1.8f : f0 * azar(0.85f, 1.25f);
     int dur = azarEntero(50, 110) * (ultimo && pregunta ? 2 : 1);
     int pausa = azar(0, 1) < 0.2f ? azarEntero(80, 140) : azarEntero(15, 40);   // de vez en cuando, como una coma
     f.agregar(f0, f1, dur, FORMA[e], ultimo && grita ? fminf(1, vol * 1.4f) : vol, 0, 6, pausa);
+    propio += dur + pausa;
   }
+  int extra = n > 1 && total > propio ? (total - propio) / (n - 1) : 0;
+  if (extra > 600) extra = 600;
+  for (int i = f.cuantas - n; i < f.cuantas - 1; i++) f.n[i].despues += extra;
 }
 
 // El "idioma" de un número de sonido: S_CHARLA + n es una charla, todo lo demás una frase fija

@@ -1778,9 +1778,9 @@ int letrasVisibles(const String& s) {
   if (s != tipeo.texto) { tipeo.texto = s; tipeo.desde = millis(); tipeo.atras = 0; }
   int largo = s.length();
   float avance = -1;
-  // Una letra cada 65 ms como mucho (más rápido no se llega a leer). Con bips arranca con el primero y
+  // Una letra cada 80 ms como mucho (más rápido no se llega a leer). Con bips arranca con el primero y
   // tampoco se adelanta a ellos; si los bips terminan antes, sigue escribiendo solo.
-  const float MS_POR_LETRA = 65;
+  const float MS_POR_LETRA = 80;   // como MS_POR_LETRA_CHARLA de sonidos.h
   if (amigo.charlaN && sonidos::charlasHechas >= amigo.charlaN) {
     unsigned long t0 = sonidos::bipDesde[0];
     float porTiempo = millis() > t0 ? (millis() - t0) / (MS_POR_LETRA * largo + 1) : 0;
