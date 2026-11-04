@@ -362,7 +362,8 @@ bool pedir(const char* ruta, JsonDocument& doc) {
   int codigo = http.GET();
   bool ok = codigo == 200 && !deserializeJson(doc, http.getString());
   http.end();
-  anotarPanel(codigo > 0);   // negativo = ni siquiera contestó (apagado, sin red o con otra IP)
+  // negativo = ni siquiera contestó (apagado, sin red o con otra IP); si tardó de más, igual está ahí
+  anotarPanel(codigo > 0 || codigo == HTTPC_ERROR_READ_TIMEOUT);
   Serial.printf("Panel %s -> %d %s\n", url.c_str(), codigo, ok ? "ok" : "FALLO");
   return ok;
 }
