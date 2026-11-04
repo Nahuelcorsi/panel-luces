@@ -7,9 +7,11 @@
 //           girar = brillo · clic = prender/apagar · mantener 1 s = apagar todo
 // Perilla 5 (color): girar = recorre los colores de la luz elegida · clic = pasa a la luz siguiente
 //           · mantener 1 s = vuelve a luz blanca
-// Pantalla: pestañas Inicio / Luces / Jugar / Amigo abajo de todo.
+// Pantalla: la casita (plano con un cuarto por luz: tocar uno lo prende o apaga) y, arriba a la derecha,
+//        los botones de Modos, Jugar y el amigo. Al girar una perilla aparecen las cápsulas de brillo y color.
+// Modos: elegís cuartos y un modo (cálido, neutro, telo, apagar) que se aplica solo a esos.
 // Jugar: Arkanoid o Space Invaders. Cualquier perilla (o el dedo) mueve la paleta o la nave y un clic
-//        lanza o dispara; mantener apretada una perilla vuelve al menú de juegos.
+//        lanza o dispara; mantener apretada una perilla vuelve al menú de juegos (y desde el menú, a la casita).
 // Amigo: dos ojitos y frases fijas que van al mismo cerebro del panel (/cerebro); contesta en pantalla
 //        y con ruiditos de robot (nunca con palabras).
 // Botón para hablar (P6 del expansor 0 a GND): desde cualquier pestaña lleva al amigo; mientras lo
@@ -100,13 +102,22 @@ LGFX lcd;
 // así no se ve cómo se borra y se vuelve a dibujar (eso era el parpadeo).
 LGFX_Sprite lienzo(&lcd);
 LovyanGFX* g = &lcd;          // dónde dibujan las funciones de abajo: la hoja o la pantalla directo
-bool pestanasSucias = true;   // las pestañas de abajo van directo a la pantalla, solo cuando cambian
+// La hoja mide 320x204: en la casita, Modos y Jugar va abajo (desde y = 36) y la barra de arriba se dibuja
+// directo, solo cuando cambia; con el amigo va arriba como siempre y abajo queda una franja para volver.
+const int ALTO_BARRA = 36;
+int hojaY = 0;                // en qué "y" de la pantalla empieza lo que se dibuja ahora (se resta a cada "y")
+bool barraSucia = true;       // la barra (arriba, o la franja del amigo abajo) hay que dibujarla de nuevo
 Preferences prefs;
 
 // ---- colores ----
 // Siempre uint32_t: LovyanGFX toma un int suelto como color de 16 bits y saldría otro color
+// Los oscuros de antes quedan para la pantalla del amigo (y la calibración)
 const uint32_t FONDO = 0x0b0d12, TARJETA = 0x1b1f2a, TEXTO = 0xf2f2f2, TENUE = 0x8a90a0, ACENTO = 0xffb347,
                PISTA = 0x2a2f3a, SIN_RED = 0x444444;
+// Estilo tierno y redondito: casita, cápsulas, Modos y juegos
+const uint32_t CREMA = 0xFFF4EA, TINTA = 0x3B2A4A, SUAVE = 0xA58FAE, ROSA = 0xFF8FB1, MENTA = 0x7FD8BE,
+               CELESTE = 0x8CC8FF, AMARILLO = 0xFFD36E, BLANCO = 0xFFFFFF, PLANO = 0xF3E4D8, APAGADA = 0xE6E0EE,
+               FONDO_CAPSULA = 0xF1E4EC, ELEGIDO = 0xFFE3EC, FONDO_JUEGO = 0xFBEAF2;
 
 // ---- datos que vienen del panel ----
 struct Luz { String id, nombre; bool online = false, encendida = false, grupo = false; int brillo = 0; uint32_t color = 0; };
@@ -116,9 +127,8 @@ int nLuces = 0, elegida = 0;   // en luces[], las luces de un grupo (como el Liv
 struct { bool ok = false; float temp = 0, max = 0, min = 0; int codigo = 0, lluvia = 0; } clima;
 struct { bool activo = false; String hora; uint8_t dias = 0x7F; } alarma;   // dias: bit 1 = lunes ... bit 7 = domingo
 
-enum Pagina { INICIO, LUCES, JUEGO, AMIGO, N_PAGINAS };
-const char* PESTANAS[] = {"Inicio", "Luces", "Jugar", "Amigo"};
-int pagina = INICIO;
+enum Pagina { CASITA, MODOS, JUEGO, AMIGO };
+int pagina = CASITA;
 bool sucio = true;              // hay que redibujar
 unsigned long ultimoUso = 0;    // para atenuar la pantalla
 bool atenuada = false;
@@ -251,9 +261,8 @@ unsigned long mandarBrilloEn[MAX_LUCES];
 int perillaLuz[PERILLA_COLOR] = {-1, -1, -1, -1};     // qué luz o grupo de luces[] maneja cada perilla (-1 = ninguna)
 int tonoPendiente = -1, tonoLuz = 0;                  // color elegido con la perilla 5 (0-359) y para qué luz, todavía sin mandar
 unsigned long mandarTonoEn = 0;
-enum Cartel { BRILLO, COLOR };
-int cartel = BRILLO;                                  // cartel grande que aparece al girar una perilla
-unsigned long mostrarCartelHasta = 0;
+int perillaActiva = 0;                                // la perilla que estás girando: su cápsula se ve más grande
+unsigned long mostrarCartelHasta = 0;                 // hasta cuándo se ven las cápsulas encima de la casita
 
 // Color puro de un tono (0-359), a todo brillo: el brillo lo manejan las otras perillas
 uint32_t colorDeTono(int h) {
@@ -281,10 +290,12 @@ int tonoDeColor(uint32_t c) {
   return (h + 360) % 360;
 }
 
-void mostrarCartel(int cual) {
+// Las cápsulas van encima de la casita: si estabas en otra pantalla (menos el juego), se vuelve a ella
+void mostrarCapsulas(int perilla) {
   sucio = true;
-  cartel = cual;
-  mostrarCartelHasta = millis() + 1500;
+  perillaActiva = perilla;
+  mostrarCartelHasta = millis() + 2000;
+  if (pagina != CASITA && pagina != JUEGO) pagina = CASITA;
 }
 
 // ---- API del panel ----
@@ -356,10 +367,6 @@ void mandarPendientes() {
 
 // Qué maneja cada perilla: el nombre de una luz o de un grupo del panel (PERILLAS en config.h).
 // Así no importa el orden de devices.json. Sin PERILLAS, van en ese orden como antes.
-#ifdef PERILLAS
-const char* const NOMBRES_PERILLAS[] = PERILLAS;
-const int N_NOMBRES = sizeof NOMBRES_PERILLAS / sizeof *NOMBRES_PERILLAS;
-
 // "Habitación", "habitacion" y " HABITACION " cuentan como el mismo nombre
 String nombreSuelto(String s) {
   static const char* CAMBIOS[][2] = {
@@ -372,13 +379,16 @@ String nombreSuelto(String s) {
   return s;
 }
 
-int buscarLuz(const char* nombre) {       // una luz suelta o un grupo, como aparece en la pestaña Luces
+int buscarLuz(const char* nombre) {       // una luz suelta o un grupo del panel (los grupos van como una sola)
   String buscado = nombreSuelto(nombre);
   for (int i = 0; buscado.length() && i < nLuces; i++)
     if (nombreSuelto(luces[i].nombre) == buscado) return i;
   return -1;
 }
 
+#ifdef PERILLAS
+const char* const NOMBRES_PERILLAS[] = PERILLAS;
+const int N_NOMBRES = sizeof NOMBRES_PERILLAS / sizeof *NOMBRES_PERILLAS;
 #endif
 
 // El grupo (de 2 luces o más) al que pertenece una luz, o -1
@@ -580,7 +590,7 @@ const int COLUMNAS = 8, FILAS = 5;
 const int LADRILLO_AN = 37, LADRILLO_AL = 10, LADRILLO_X = 2, LADRILLO_Y = 26, PASO_X = 40, PASO_Y = 14;
 const int TECHO = 18, PALETA_Y = 188, PALETA_AL = 6, PELOTA_R = 3;
 const int PIXELES_POR_CLIC = 18;       // cuánto se mueve la paleta con cada clic de perilla
-const uint32_t COLORES_FILA[FILAS] = {0xff5a5a, 0xffb347, 0xffe066, 0x6ee07a, 0x5ab4ff};
+const uint32_t COLORES_FILA[FILAS] = {ROSA, AMARILLO, MENTA, ROSA, AMARILLO};
 
 struct {
   bool ladrillo[FILAS][COLUMNAS];
@@ -1159,18 +1169,6 @@ int cuadroAmigo(unsigned long t) {
 }
 
 // ---- dibujo ----
-const char* textoClima(int c) {
-  if (c == 0) return "Despejado";
-  if (c <= 2) return "Algo nublado";
-  if (c == 3) return "Nublado";
-  if (c <= 48) return "Niebla";
-  if (c <= 57) return "Llovizna";
-  if (c <= 67) return "Lluvia";
-  if (c <= 77) return "Nieve";
-  if (c <= 82) return "Chaparrones";
-  return "Tormenta";
-}
-
 void texto(const String& s, int x, int y, const lgfx::IFont* fuente, uint32_t color, textdatum_t datum = textdatum_t::top_left) {
   g->setFont(fuente);
   g->setTextColor(color);
@@ -1186,82 +1184,402 @@ void grados(float t, int x, int y, const lgfx::IFont* fuente, uint32_t color) {
   g->drawCircle(x + g->textWidth(s) + r + 2, y + r + 2, r, color);
 }
 
-void dibujarPestanas() {
-  for (int i = 0; i < N_PAGINAS; i++) {
-    bool activa = i == pagina;
-    g->fillRect(i * 80, 204, 80, 36, activa ? TARJETA : FONDO);
-    if (activa) g->fillRect(i * 80 + 20, 236, 40, 3, ACENTO);
-    texto(PESTANAS[i], i * 80 + 40, 222, &fonts::FreeSans9pt7b, activa ? TEXTO : TENUE, textdatum_t::middle_center);
+// ---- Estilo tierno: ayudas para dibujar ----
+// Todo lo nuevo se escribe con la "y" de la pantalla; yh() la pasa a la hoja (que puede empezar más abajo)
+int yh(int y) {
+  return y - hojaY;
+}
+
+// Mezcla dos colores: t = 0 da a, t = 255 da b
+uint32_t mezcla(uint32_t a, uint32_t b, int t) {
+  int r = (((a >> 16) & 255) * (255 - t) + ((b >> 16) & 255) * t) / 255;
+  int v = (((a >> 8) & 255) * (255 - t) + ((b >> 8) & 255) * t) / 255;
+  int z = ((a & 255) * (255 - t) + (b & 255) * t) / 255;
+  return ((uint32_t)r << 16) | (v << 8) | z;
+}
+
+// Un velo color crema encima de la casita (0 = nada): así se ve atenuada detrás de las cápsulas
+int velo = 0;
+
+uint32_t tinte(uint32_t c) {
+  return velo ? mezcla(c, CREMA, velo) : c;
+}
+
+bool esOscuro(uint32_t c) {
+  return (((c >> 16) & 255) * 299 + ((c >> 8) & 255) * 587 + (c & 255) * 114) / 1000 < 140;
+}
+
+// Escribe el texto cortándole letras del final hasta que entre en el ancho
+void textoQueEntre(String s, int x, int y, int ancho, const lgfx::IFont* fuente, uint32_t color,
+                   textdatum_t datum = textdatum_t::top_left) {
+  g->setFont(fuente);
+  while (s.length() > 1 && g->textWidth(s) > ancho) s.remove(s.length() - 1);
+  texto(s, x, y, fuente, color, datum);
+}
+
+// Flechita "<" para volver, con la punta en (x, y)
+void flechita(int x, int y, uint32_t color) {
+  g->drawWideLine(x, y, x + 8, y - 8, 1.6f, color);
+  g->drawWideLine(x, y, x + 8, y + 8, 1.6f, color);
+}
+
+void tilde(int cx, int cy, uint32_t color) {
+  g->drawWideLine(cx - 4, cy, cx - 1, cy + 3, 1.2f, color);
+  g->drawWideLine(cx - 1, cy + 3, cx + 4, cy - 3, 1.2f, color);
+}
+
+void estrella(int cx, int cy, int r, uint32_t color) {
+  int px[10], py[10];
+  for (int i = 0; i < 10; i++) {
+    float a = -PI / 2 + i * PI / 5, largo = i % 2 ? r * 0.45f : r;
+    px[i] = cx + round(largo * cos(a));
+    py[i] = cy + round(largo * sin(a));
+  }
+  for (int i = 0; i < 10; i++) g->fillTriangle(cx, cy, px[i], py[i], px[(i + 1) % 10], py[(i + 1) % 10], color);
+}
+
+void corazon(int cx, int cy, uint32_t color) {   // chiquito, para el modo telo
+  g->fillCircle(cx - 4, cy - 2, 4, color);
+  g->fillCircle(cx + 4, cy - 2, 4, color);
+  g->fillTriangle(cx - 8, cy, cx + 8, cy, cx, cy + 8, color);
+}
+
+// ---- La casita: un cuarto por luz, en el plano grande y en la casita chiquita de Modos ----
+// El nombre es el de la luz o el grupo en el panel. Para agregar un cuarto, sumá una línea acá.
+struct Cuarto { const char* nombre; int x, y, an, al; int mx, my, man, mal; };
+const Cuarto CUARTOS[] = {
+  //  nombre       plano grande            casita chiquita (Modos)
+  {"Living",      16,  48, 172, 104,      14,  46,  72,  90},
+  {"Cocina",     194,  48, 110, 104,      90,  46,  64,  90},
+  {"Habitacion",  16, 158, 288,  68,      14, 142, 140,  84},
+  {"Lampara",    204, 172,  90,  40,      22, 176,  86,  44},   // va adentro de la habitación
+};
+const int N_CUARTOS = sizeof CUARTOS / sizeof *CUARTOS;
+uint8_t cuartosElegidos = 0x0F;   // en Modos: un bit por cuarto (se guarda en la memoria de la placa)
+
+bool adentro(int x, int y, int cx, int cy, int an, int al) {
+  return x >= cx && x < cx + an && y >= cy && y < cy + al;
+}
+
+// El color del cuarto: el de su luz mezclado con el crema según el brillo (apagada, gris clarito)
+uint32_t colorCuarto(int i) {
+  if (i < 0 || !luces[i].online || !luces[i].encendida) return APAGADA;
+  return mezcla(CREMA, luces[i].color, 90 + constrain(luces[i].brillo, 0, 100) * 165 / 100);
+}
+
+String estadoLuz(int i) {
+  if (i < 0) return "sin luz";
+  if (!luces[i].online) return "sin red";
+  return luces[i].encendida ? String(luces[i].brillo) + "%" : "apagada";
+}
+
+void dibujarCuarto(int k) {
+  const Cuarto& c = CUARTOS[k];
+  int i = buscarLuz(c.nombre);
+  uint32_t fondo = colorCuarto(i), letra = esOscuro(fondo) ? BLANCO : TINTA;
+  g->fillRoundRect(c.x, yh(c.y), c.an, c.al, 14, tinte(BLANCO));
+  g->fillRoundRect(c.x + 3, yh(c.y + 3), c.an - 6, c.al - 6, 11, tinte(fondo));
+  String nombre = i >= 0 ? luces[i].nombre : String(c.nombre);
+  if (c.al >= 60) {        // nombre y brillo en dos renglones
+    textoQueEntre(nombre, c.x + 12, yh(c.y + 10), c.an - 20, &fonts::FreeSansBold9pt7b, tinte(letra));
+    texto(estadoLuz(i), c.x + 12, yh(c.y + 32), &fonts::FreeSans9pt7b, tinte(letra));
+  } else {                 // chip chiquito: todo en un renglón (apagada, solo el gris)
+    String estado = i >= 0 && luces[i].online && luces[i].encendida ? estadoLuz(i) : "";
+    g->setFont(&fonts::Font2);
+    int anEstado = g->textWidth(estado);
+    texto(estado, c.x + c.an - 10, yh(c.y + c.al / 2), &fonts::Font2, tinte(letra), textdatum_t::middle_right);
+    textoQueEntre(nombre, c.x + 10, yh(c.y + c.al / 2), c.an - 26 - anEstado, &fonts::Font2, tinte(letra),
+                  textdatum_t::middle_left);
   }
 }
 
-void dibujarInicio() {
-  struct tm t;
-  bool hora = getLocalTime(&t, 10);
-  char reloj[6] = "--:--", fecha[24] = "";
-  static const char* DIAS[] = {"Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"};
-  if (hora) {
-    strftime(reloj, sizeof reloj, "%H:%M", &t);
-    snprintf(fecha, sizeof fecha, "%s %d", DIAS[t.tm_wday], t.tm_mday);
-  }
-  g->setTextSize(1.4);
-  texto(reloj, 160, 12, &fonts::Font7, TEXTO, textdatum_t::top_center);
-  g->setTextSize(1);
-  texto(fecha, 14, 88, &fonts::FreeSans9pt7b, TENUE);
-
-  g->fillRoundRect(10, 114, 300, 80, 12, TARJETA);
-  if (clima.ok) {
-    grados(clima.temp, 24, 126, &fonts::FreeSansBold24pt7b, TEXTO);
-    texto(textoClima(clima.codigo), 120, 128, &fonts::FreeSans12pt7b, TEXTO);
-    texto("Max " + String((int)round(clima.max)) + "  Min " + String((int)round(clima.min)), 120, 154, &fonts::FreeSans9pt7b, TENUE);
-    texto("Lluvia " + String(clima.lluvia) + "% (3 h)", 120, 172, &fonts::FreeSans9pt7b, TENUE);
-  } else {
-    texto("Sin datos del clima", 160, 154, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
-  }
-  if (alarma.activo) texto("Alarma " + alarma.hora, 306, 88, &fonts::FreeSans9pt7b, ACENTO, textdatum_t::top_right);
-}
-
-void dibujarLuces() {
+void dibujarCasita() {
+  g->fillRoundRect(10, yh(42), 300, 190, 18, tinte(PLANO));
   if (!nLuces) {
-    texto("Buscando luces...", 160, 100, &fonts::FreeSans12pt7b, TENUE, textdatum_t::middle_center);
+    texto("Buscando luces...", 160, yh(137), &fonts::FreeSansBold12pt7b, tinte(SUAVE), textdatum_t::middle_center);
     return;
   }
-  int alto = (196 - 8) / nLuces;
-  for (int i = 0; i < nLuces; i++) {
-    Luz& l = luces[i];
-    int y = 6 + i * alto, h = alto - 6;
-    g->fillRoundRect(10, y, 300, h, 12, TARJETA);
-    if (i == elegida) g->drawRoundRect(10, y, 300, h, 12, ACENTO);
-    // Botón de encendido a la derecha, con el color de la luz
-    uint32_t c = !l.online ? SIN_RED : l.encendida ? l.color : PISTA;
-    g->fillCircle(276, y + h / 2, min(h / 2 - 6, 30), c);
-    String estado = !l.online ? "Sin conexion" : l.encendida ? String(l.brillo) + "%" : "Apagada";
-    if (nLuces <= 2) {
-      texto(l.nombre, 26, y + h / 2 - 12, &fonts::FreeSansBold12pt7b, TEXTO, textdatum_t::middle_left);
-      texto(estado, 26, y + h / 2 + 14, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_left);
-    } else {   // con 3 o más luces, todo en una línea
-      texto(l.nombre, 24, y + h / 2, &fonts::FreeSansBold9pt7b, TEXTO, textdatum_t::middle_left);
-      texto(estado, 236, y + h / 2, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_right);
+  for (int k = 0; k < N_CUARTOS; k++) dibujarCuarto(k);
+}
+
+void tocarCasita(int x, int y) {   // se llama con el candado tomado
+  for (int k = N_CUARTOS - 1; k >= 0; k--) {   // de atrás para adelante: la lámpara está adentro de la habitación
+    const Cuarto& c = CUARTOS[k];
+    if (!adentro(x, y, c.x, c.y, c.an, c.al)) continue;
+    int i = buscarLuz(c.nombre);
+    if (i < 0) return;
+    luces[i].encendida = !luces[i].encendida;   // se muestra ya, sin esperar al panel
+    mandar(i, luces[i].encendida ? "{\"encendida\":true}" : "{\"encendida\":false}");
+    elegida = i;
+    return;
+  }
+}
+
+// ---- Barra de arriba (va directo a la pantalla y se dibuja solo si cambió algo) ----
+const int BOTON_X = 218, BOTON_PASO = 34;   // los 3 botones de la casita: Modos, Jugar y el amigo
+String barraHecha;
+
+void botonesCasita() {
+  const uint32_t COLORES[] = {AMARILLO, MENTA, ROSA};
+  for (int b = 0; b < 3; b++) {
+    int x = BOTON_X + b * BOTON_PASO, y = 4;
+    g->fillRoundRect(x, y, 30, 28, 10, COLORES[b]);
+    if (b == 0) estrella(x + 15, y + 15, 10, BLANCO);
+    else if (b == 1) {   // joystick
+      g->fillRoundRect(x + 7, y + 17, 16, 7, 3, BLANCO);
+      g->fillRect(x + 14, y + 9, 3, 9, BLANCO);
+      g->fillCircle(x + 15, y + 8, 4, BLANCO);
+    } else {             // los ojitos del amigo
+      g->fillRoundRect(x + 8, y + 8, 5, 12, 2, BLANCO);
+      g->fillRoundRect(x + 17, y + 8, 5, 12, 2, BLANCO);
     }
   }
 }
 
+void dibujarBarra(bool conBarra) {
+  char reloj[6] = "--:--", fecha[12] = "";
+  if (pagina == CASITA) {
+    struct tm t;
+    static const char* DIAS[] = {"Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"};
+    if (getLocalTime(&t, 10)) {
+      strftime(reloj, sizeof reloj, "%H:%M", &t);
+      snprintf(fecha, sizeof fecha, "%s %d", DIAS[t.tm_wday], t.tm_mday);
+    }
+  }
+  // Lo que se ve en la barra: si no cambió, no se toca (así no titila)
+  String firma = String(pagina) + (conBarra ? "b" : "s") + juegoElegido;
+  if (pagina == CASITA)
+    firma += String(reloj) + fecha + (clima.ok ? String((int)round(clima.temp)) : "") + (alarma.activo ? alarma.hora : "");
+  if (!barraSucia && firma == barraHecha) return;
+  barraHecha = firma;
+  barraSucia = false;
+
+  if (pagina == AMIGO) {           // la pantalla del amigo queda como siempre; abajo, la franja para volver
+    g->fillRect(0, 204, 320, 36, FONDO);
+    flechita(12, 222, TENUE);
+    texto("Volver a la casita", 28, 222, &fonts::Font2, TENUE, textdatum_t::middle_left);
+    return;
+  }
+  if (!conBarra) {                 // juego sin hoja: va dibujado arriba de todo y abajo queda una franja
+    g->fillRect(0, 204, 320, 36, FONDO_JUEGO);
+    return;
+  }
+  g->fillRect(0, 0, 320, ALTO_BARRA, pagina == JUEGO ? FONDO_JUEGO : CREMA);
+  if (pagina == CASITA) {
+    texto(reloj, 8, 19, &fonts::FreeSansBold18pt7b, TINTA, textdatum_t::middle_left);
+    int x = 16 + g->textWidth(reloj);
+    if (clima.ok) grados(clima.temp, x, 2, &fonts::Font2, SUAVE);
+    texto(fecha, x, 18, &fonts::Font2, SUAVE);
+    if (alarma.activo) {           // chip de la alarma, con una campanita
+      g->setFont(&fonts::Font2);
+      int an = g->textWidth(alarma.hora) + 26, cx = BOTON_X - 6 - an;
+      g->fillRoundRect(cx, 8, an, 20, 10, 0xFFF0C8);
+      g->fillRoundRect(cx + 6, 12, 9, 9, 4, TINTA);
+      g->fillRect(cx + 5, 19, 11, 2, TINTA);
+      g->fillCircle(cx + 10, 23, 1, TINTA);
+      texto(alarma.hora, cx + 20, 18, &fonts::Font2, TINTA, textdatum_t::middle_left);
+    }
+    botonesCasita();
+  } else if (pagina == MODOS) {
+    flechita(10, 18, TINTA);
+    texto("Modos", 26, 18, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
+    texto("1 toca los cuartos", 312, 2, &fonts::Font2, SUAVE, textdatum_t::top_right);
+    texto("2 elegi el modo", 312, 18, &fonts::Font2, SUAVE, textdatum_t::top_right);
+  } else {                         // juego
+    const char* NOMBRES[] = {"Jugar", "Arkanoid", "Invaders"};
+    flechita(10, 18, TINTA);
+    texto(NOMBRES[juegoElegido + 1], 26, 18, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
+  }
+}
+
+// ---- Cápsulas: aparecen encima de la casita al girar una perilla ----
+// Cuánto se mete el borde redondo de una cápsula (ancho an, alto al) en la fila f, contando desde arriba
+int margenFila(int f, int an, int al) {
+  int r = an / 2, d = 0;
+  if (f < r) d = r - f;
+  else if (f >= al - r) d = f - (al - r - 1);
+  if (d <= 0) return 0;
+  if (d > r) return r;
+  return r - (int)sqrt((float)(r * r - d * d));
+}
+
+void dibujarCapsula(int k, int x, int y, int an, int al, bool activa, int anEtiqueta) {
+  bool color = k == PERILLA_COLOR;
+  int i = color ? elegida : perillaLuz[k];
+  if (i < 0 || i >= nLuces) return;
+  Luz& l = luces[i];
+  int brillo = color ? 0 : brilloPendiente[i] >= 0 ? brilloPendiente[i] : l.encendida ? l.brillo : 0;
+  bool prendida = color || (l.online && (brilloPendiente[i] >= 0 || l.encendida));
+  int tono = color ? (tonoPendiente >= 0 ? tonoPendiente : tonoDeColor(l.color)) : 0;
+  uint32_t liquido = l.color ? l.color : ROSA;
+  int apagar = activa ? 0 : 110;   // las que no estás girando, más tenues
+
+  g->fillRoundRect(x, yh(y), an, al, an / 2, BLANCO);
+  int ix = x + 3, iy = y + 3, ian = an - 6, ial = al - 6;
+  int lleno = prendida ? ial * brillo / 100 : 0;
+  for (int f = 0; f < ial; f++) {   // fila por fila, así el líquido y el arcoíris respetan lo redondo
+    int m = margenFila(f, ian, ial);
+    uint32_t c = color ? colorDeTono(f * 360 / ial) : f >= ial - lleno ? liquido : FONDO_CAPSULA;
+    g->drawFastHLine(ix + m, yh(iy + f), ian - 2 * m, mezcla(c, CREMA, apagar));
+  }
+  if (color) {                      // rayita blanca donde está el tono de ahora
+    int f = tono * ial / 360, m = margenFila(f, ian, ial);
+    g->fillRect(ix + m, yh(iy + f - 2), ian - 2 * m, 5, TINTA);
+    g->fillRect(ix + m, yh(iy + f - 1), ian - 2 * m, 3, BLANCO);
+  }
+  uint32_t letra = activa ? TINTA : SUAVE;
+  const lgfx::IFont* fuente = activa ? (const lgfx::IFont*)&fonts::FreeSansBold9pt7b : &fonts::Font2;
+  String arriba = color ? l.nombre : !l.online ? "sin red" : prendida ? String(brillo) + "%" : "apag.";
+  textoQueEntre(arriba, x + an / 2, yh(y - 4), anEtiqueta, fuente, letra, textdatum_t::bottom_center);
+  String abajo = color ? "Color" : String(k + 1) + " " + l.nombre;
+  g->setFont(&fonts::Font2);
+  if (!color && g->textWidth(abajo) > anEtiqueta) abajo = l.nombre;   // si no entra con el número, sin el número
+  textoQueEntre(abajo, x + an / 2, yh(y + al + 4), anEtiqueta, &fonts::Font2, letra, textdatum_t::top_center);
+}
+
+void dibujarCapsulas() {
+  int cuales[N_PERILLAS], n = 0, total = 0;
+  for (int k = 0; k < PERILLA_COLOR; k++) if (perillaLuz[k] >= 0 && perillaLuz[k] < nLuces) cuales[n++] = k;
+  if (nLuces) cuales[n++] = PERILLA_COLOR;
+  for (int j = 0; j < n; j++) total += cuales[j] == perillaActiva ? 62 : 48;
+  int hueco = (320 - total) / (n + 1), x = hueco;
+  for (int j = 0; j < n; j++) {
+    bool activa = cuales[j] == perillaActiva;
+    int an = activa ? 62 : 48, al = activa ? 150 : 124;
+    dibujarCapsula(cuales[j], x, 214 - al, an, al, activa, an + hueco - 4);
+    x += an + hueco;
+  }
+}
+
+// ---- Modos: elegís cuartos y un modo, y se aplica solo a esos ----
+// Para agregar un modo, sumá una línea: nombre, color del botón, color de la letra y lo que se le manda al panel
+struct Modo { const char* nombre; uint32_t fondo, letra; const char* cuerpo; };
+const Modo MODOS_LUZ[] = {
+  {"Calido",    0xFFB05E, TINTA,  "{\"encendida\":true,\"blanco\":0,\"brillo\":70}"},
+  {"Neutro",    BLANCO,   TINTA,  "{\"encendida\":true,\"blanco\":50,\"brillo\":70}"},
+  {"Modo telo", 0xE8304A, BLANCO, "{\"encendida\":true,\"color\":\"#ff0000\",\"brillo\":50}"},
+  {"Apagar",    TINTA,    BLANCO, "{\"encendida\":false}"},
+};
+const int N_MODOS = sizeof MODOS_LUZ / sizeof *MODOS_LUZ;
+const int MODO_X = 166, MODO_AN = 146, MODO_Y = 40, MODO_ALTO_TOTAL = 192;
+int modoTocado = -1;
+unsigned long modoTocadoHasta = 0;
+
+int altoModo() {
+  return (MODO_ALTO_TOTAL - (N_MODOS - 1) * 8) / N_MODOS;
+}
+
+void iconoModo(int m, int cx, int cy, uint32_t c) {
+  switch (m) {
+    case 0:   // solcito
+      g->fillCircle(cx, cy, 5, c);
+      for (int i = 0; i < 8; i++) {
+        float a = i * PI / 4;
+        g->drawLine(cx + round(7 * cos(a)), cy + round(7 * sin(a)), cx + round(10 * cos(a)), cy + round(10 * sin(a)), c);
+      }
+      break;
+    case 1:   // lamparita
+      g->drawCircle(cx, cy - 2, 7, c);
+      g->drawCircle(cx, cy - 2, 6, c);
+      g->fillRoundRect(cx - 3, cy + 6, 7, 4, 1, c);
+      break;
+    case 2: corazon(cx, cy, c); break;
+    default:  // botón de apagar
+      g->drawCircle(cx, cy + 1, 8, c);
+      g->drawCircle(cx, cy + 1, 7, c);
+      g->fillRect(cx - 3, cy - 9, 7, 8, MODOS_LUZ[m].fondo);
+      g->fillRect(cx - 1, cy - 8, 3, 9, c);
+      break;
+  }
+}
+
+void bordePunteado(int x, int y, int an, int al, uint32_t c) {
+  for (int i = x + 10; i < x + an - 10; i += 8) {
+    g->drawFastHLine(i, y, 4, c);
+    g->drawFastHLine(i, y + al - 1, 4, c);
+  }
+  for (int j = y + 10; j < y + al - 10; j += 8) {
+    g->drawFastVLine(x, j, 4, c);
+    g->drawFastVLine(x + an - 1, j, 4, c);
+  }
+}
+
+void dibujarModos() {
+  g->fillRoundRect(8, yh(40), 152, 192, 16, PLANO);
+  for (int k = 0; k < N_CUARTOS; k++) {
+    const Cuarto& c = CUARTOS[k];
+    bool si = cuartosElegidos >> k & 1;
+    int y = yh(c.my);
+    if (si) {
+      g->fillRoundRect(c.mx, y, c.man, c.mal, 12, ROSA);
+      g->fillRoundRect(c.mx + 3, y + 3, c.man - 6, c.mal - 6, 9, ELEGIDO);
+      g->fillCircle(c.mx + c.man - 13, y + c.mal - 13, 8, ROSA);
+      tilde(c.mx + c.man - 13, y + c.mal - 13, BLANCO);
+    } else {
+      g->fillRoundRect(c.mx, y, c.man, c.mal, 12, APAGADA);
+      bordePunteado(c.mx, y, c.man, c.mal, SUAVE);
+    }
+    int i = buscarLuz(c.nombre);
+    String nombre = i >= 0 ? luces[i].nombre : String(c.nombre);
+    textoQueEntre(nombre, c.mx + 8, y + 7, c.man - 14, &fonts::Font2, si ? TINTA : SUAVE);
+  }
+  int alto = altoModo();
+  for (int m = 0; m < N_MODOS; m++) {
+    const Modo& d = MODOS_LUZ[m];
+    int y = yh(MODO_Y + m * (alto + 8));
+    bool tocado = m == modoTocado && millis() < modoTocadoHasta;
+    if (tocado) g->fillRoundRect(MODO_X - 2, y - 2, MODO_AN + 4, alto + 4, 16, ROSA);
+    g->fillRoundRect(MODO_X, y, MODO_AN, alto, 14, d.fondo);
+    if (d.fondo == BLANCO) g->drawRoundRect(MODO_X, y, MODO_AN, alto, 14, SUAVE);
+    iconoModo(m, MODO_X + 22, y + alto / 2, d.letra);
+    texto(d.nombre, MODO_X + 40, y + alto / 2, &fonts::FreeSansBold9pt7b, d.letra, textdatum_t::middle_left);
+  }
+}
+
+void aplicarModo(int m) {   // se llama con el candado tomado
+  for (int k = 0; k < N_CUARTOS; k++) {
+    if (!(cuartosElegidos >> k & 1)) continue;
+    int i = buscarLuz(CUARTOS[k].nombre);
+    if (i < 0) continue;
+    luces[i].encendida = strstr(MODOS_LUZ[m].cuerpo, "true") != nullptr;   // se muestra ya, sin esperar al panel
+    mandar(i, MODOS_LUZ[m].cuerpo);
+  }
+  modoTocado = m;
+  modoTocadoHasta = millis() + 600;
+}
+
+void tocarModos(int x, int y) {   // se llama con el candado tomado
+  if (x < MODO_X) {
+    for (int k = N_CUARTOS - 1; k >= 0; k--) {
+      const Cuarto& c = CUARTOS[k];
+      if (!adentro(x, y, c.mx, c.my, c.man, c.mal)) continue;
+      cuartosElegidos ^= 1 << k;
+      prefs.putUChar("modosSel", cuartosElegidos);
+      return;
+    }
+    return;
+  }
+  int alto = altoModo();
+  for (int m = 0; m < N_MODOS; m++)
+    if (adentro(x, y, MODO_X, MODO_Y + m * (alto + 8), MODO_AN, alto)) { aplicarModo(m); return; }
+}
+
 void dibujarArkanoid() {
-  texto("Puntos " + String(juego.puntos), 6, 2, &fonts::Font2, TEXTO);
-  texto("Nivel " + String(juego.nivel), 160, 2, &fonts::Font2, TENUE, textdatum_t::top_center);
-  for (int i = 0; i < juego.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ACENTO);
-  g->drawFastHLine(0, TECHO - 1, 320, PISTA);
+  texto("Puntos " + String(juego.puntos), 6, 2, &fonts::Font2, TINTA);
+  texto("Nivel " + String(juego.nivel), 160, 2, &fonts::Font2, SUAVE, textdatum_t::top_center);
+  for (int i = 0; i < juego.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ROSA);
+  g->drawFastHLine(0, TECHO - 1, 320, 0xF0D2E0);
   for (int f = 0; f < FILAS; f++)
     for (int c = 0; c < COLUMNAS; c++)
       if (juego.ladrillo[f][c])
-        g->fillRoundRect(LADRILLO_X + c * PASO_X, LADRILLO_Y + f * PASO_Y, LADRILLO_AN, LADRILLO_AL, 3, COLORES_FILA[f]);
-  g->fillRoundRect((int)(juego.paleta - juego.ancho / 2), PALETA_Y, juego.ancho, PALETA_AL, 3, TEXTO);
-  if (!juego.terminado) g->fillCircle((int)juego.x, (int)juego.y, PELOTA_R, ACENTO);
+        g->fillRoundRect(LADRILLO_X + c * PASO_X, LADRILLO_Y + f * PASO_Y, LADRILLO_AN, LADRILLO_AL, 4, COLORES_FILA[f]);
+  g->fillRoundRect((int)(juego.paleta - juego.ancho / 2), PALETA_Y, juego.ancho, PALETA_AL, 3, CELESTE);
+  if (!juego.terminado) g->fillCircle((int)juego.x, (int)juego.y, PELOTA_R, TINTA);
   if (juego.terminado) {
-    texto("Fin del juego", 160, 112, &fonts::FreeSansBold12pt7b, TEXTO, textdatum_t::middle_center);
-    texto("Record " + String(juego.record) + " - apreta una perilla", 160, 140, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
+    texto("Fin del juego", 160, 112, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_center);
+    texto("Record " + String(juego.record) + " - apreta una perilla", 160, 140, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_center);
   } else if (!juego.enJuego) {
-    texto("Gira: mover. Apreta: lanzar", 160, 140, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
+    texto("Gira: mover. Apreta: lanzar", 160, 140, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_center);
   }
 }
 
@@ -1386,48 +1704,48 @@ void dibujarNave(int cx, int y, uint32_t color) {
 }
 
 void dibujarInvasores() {
-  texto("Puntos " + String(inv.puntos), 6, 2, &fonts::Font2, TEXTO);
-  texto("Oleada " + String(inv.oleada), 160, 2, &fonts::Font2, TENUE, textdatum_t::top_center);
-  for (int i = 0; i < inv.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ACENTO);
-  g->drawFastHLine(0, TECHO - 1, 320, PISTA);
+  texto("Puntos " + String(inv.puntos), 6, 2, &fonts::Font2, TINTA);
+  texto("Oleada " + String(inv.oleada), 160, 2, &fonts::Font2, SUAVE, textdatum_t::top_center);
+  for (int i = 0; i < inv.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ROSA);
+  g->drawFastHLine(0, TECHO - 1, 320, 0xF0D2E0);
   for (int f = 0; f < INV_FIL; f++)
     for (int c = 0; c < INV_COL; c++)
       if (inv.vivo[f][c]) dibujarMarciano(inv.x + c * INV_PASO_X, inv.y + f * INV_PASO_Y, inv.pie, COLORES_FILA[f]);
   bool titila = millis() < inv.golpeHasta && (millis() / 100) % 2;
-  if (!inv.terminado && !titila) dibujarNave(inv.nave, NAVE_Y, 0x6ee07a);
-  if (inv.tiro.viva) g->fillRect(inv.tiro.x - 1, inv.tiro.y - 6, 2, 6, TEXTO);
+  if (!inv.terminado && !titila) dibujarNave(inv.nave, NAVE_Y, CELESTE);
+  if (inv.tiro.viva) g->fillRect(inv.tiro.x - 1, inv.tiro.y - 6, 2, 6, TINTA);
   for (Bala& b : inv.bombas)
-    if (b.viva) g->fillRect(b.x - 1, b.y - 6, 3, 6, 0xff5a5a);
+    if (b.viva) g->fillRect(b.x - 1, b.y - 6, 3, 6, 0xE8304A);
   if (inv.terminado) {
-    texto("Te invadieron", 160, 112, &fonts::FreeSansBold12pt7b, TEXTO, textdatum_t::middle_center);
-    texto("Record " + String(inv.record) + " - apreta una perilla", 160, 140, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
+    texto("Te invadieron", 160, 112, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_center);
+    texto("Record " + String(inv.record) + " - apreta una perilla", 160, 140, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_center);
   } else if (!inv.enJuego) {
-    texto("Gira: mover. Apreta: disparar", 160, 150, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
+    texto("Gira: mover. Apreta: disparar", 160, 150, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_center);
   }
 }
 
 void dibujarMenuJuegos() {
-  texto("Elegi un juego", 160, 8, &fonts::FreeSansBold12pt7b, TEXTO, textdatum_t::top_center);
+  texto("Elegi un juego", 160, 8, &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::top_center);
   const char* NOMBRES[] = {"Arkanoid", "Invaders"};
   int records[] = {juego.record, inv.record};
   for (int i = 0; i < 2; i++) {
     int x = 14 + i * 152;
-    g->fillRoundRect(x, 40, 140, 130, 14, TARJETA);
-    if (i == opcionMenu) g->drawRoundRect(x, 40, 140, 130, 14, ACENTO);
+    if (i == opcionMenu) g->fillRoundRect(x - 3, 37, 146, 136, 17, ROSA);
+    g->fillRoundRect(x, 40, 140, 130, 14, BLANCO);
     if (i == 0) {   // dibujito: ladrillos, pelota y paleta
       for (int f = 0; f < 3; f++)
         for (int c = 0; c < 4; c++) g->fillRoundRect(x + 22 + c * 25, 56 + f * 11, 22, 8, 2, COLORES_FILA[f]);
-      g->fillCircle(x + 80, 104, 4, ACENTO);
-      g->fillRoundRect(x + 50, 118, 40, 5, 2, TEXTO);
+      g->fillCircle(x + 80, 104, 4, TINTA);
+      g->fillRoundRect(x + 50, 118, 40, 5, 2, CELESTE);
     } else {        // dibujito: 2 marcianos y la nave
       dibujarMarciano(x + 34, 60, 0, COLORES_FILA[3]);
       dibujarMarciano(x + 84, 60, 1, COLORES_FILA[1]);
-      dibujarNave(x + 70, 108, 0x6ee07a);
+      dibujarNave(x + 70, 108, CELESTE);
     }
-    texto(NOMBRES[i], x + 70, 140, &fonts::FreeSansBold9pt7b, TEXTO, textdatum_t::top_center);
-    texto("Record " + String(records[i]), x + 70, 158, &fonts::Font2, TENUE, textdatum_t::middle_center);
+    texto(NOMBRES[i], x + 70, 140, &fonts::FreeSansBold9pt7b, TINTA, textdatum_t::top_center);
+    texto("Record " + String(records[i]), x + 70, 158, &fonts::Font2, SUAVE, textdatum_t::middle_center);
   }
-  texto("Para volver: mantene apretada una perilla", 160, 188, &fonts::Font2, TENUE, textdatum_t::middle_center);
+  texto("Para volver: toca la flechita o mantene apretada una perilla", 160, 188, &fonts::Font2, SUAVE, textdatum_t::middle_center);
 }
 
 void dibujarJuego() {
@@ -1464,43 +1782,34 @@ void dibujarAmigo() {
   }
 }
 
-// Cartel grande de brillo mientras se gira la perilla
-void dibujarBrillo() {
-  if (!nLuces) return;
-  int b = brilloPendiente[elegida] >= 0 ? brilloPendiente[elegida] : luces[elegida].brillo;
-  g->fillRoundRect(40, 50, 240, 100, 16, TARJETA);
-  texto(luces[elegida].nombre, 160, 64, &fonts::FreeSans9pt7b, TENUE, textdatum_t::top_center);
-  texto(String(b) + "%", 160, 90, &fonts::FreeSansBold18pt7b, TEXTO, textdatum_t::top_center);
-  g->fillRoundRect(60, 132, 200, 8, 4, PISTA);
-  g->fillRoundRect(60, 132, 2 * b, 8, 4, ACENTO);
-}
-
-// Cartel de la perilla de color: la luz elegida, su color y el arcoíris con una marca donde está
-void dibujarColor() {
-  if (!nLuces) return;
-  int h = tonoPendiente >= 0 ? tonoPendiente : tonoDeColor(luces[elegida].color);
-  g->fillRoundRect(40, 50, 240, 100, 16, TARJETA);
-  texto(luces[elegida].nombre, 160, 64, &fonts::FreeSans9pt7b, TENUE, textdatum_t::top_center);
-  g->fillCircle(160, 102, 16, colorDeTono(h));
-  for (int x = 0; x < 200; x++) g->drawFastVLine(60 + x, 130, 10, colorDeTono(x * 360 / 200));
-  int mx = 60 + h * 200 / 360;
-  g->fillTriangle(mx - 5, 146, mx + 5, 146, mx, 140, TEXTO);
-}
-
 void dibujar() {
-  static int pestanaDibujada = -1;
   bool conLienzo = lienzo.getBuffer() != nullptr;
-  if (conLienzo) g = &lienzo;
+  // Casita, Modos y Jugar: barra arriba y la hoja debajo. El amigo: la hoja arriba, como siempre.
+  bool conBarra = pagina != AMIGO && (conLienzo || pagina != JUEGO);
+  int yHoja = conBarra ? ALTO_BARRA : 0;
   lcd.startWrite();
-  g->fillRect(0, 0, 320, 204, FONDO);
+  g = &lcd;
+  hojaY = 0;
+  dibujarBarra(conBarra);
+  if (conLienzo) { g = &lienzo; hojaY = yHoja; }
+  uint32_t fondo = pagina == AMIGO ? FONDO : pagina == JUEGO ? FONDO_JUEGO : CREMA;
+  g->fillRect(0, conLienzo ? 0 : yHoja, 320, 204, fondo);
   switch (pagina) {
-    case INICIO: dibujarInicio(); break;
-    case LUCES: dibujarLuces(); break;
+    case CASITA:
+      if (millis() < mostrarCartelHasta) {   // girando una perilla: la casita atenuada y las cápsulas encima
+        velo = 170;
+        dibujarCasita();
+        velo = 0;
+        dibujarCapsulas();
+      } else {
+        dibujarCasita();
+      }
+      break;
+    case MODOS: dibujarModos(); break;
     case JUEGO: dibujarJuego(); break;
     case AMIGO: dibujarAmigo(); break;
   }
-  if (millis() < mostrarCartelHasta) cartel == COLOR ? dibujarColor() : dibujarBrillo();
-  bool conCara = conLienzo && pagina == AMIGO && millis() >= mostrarCartelHasta;
+  bool conCara = conLienzo && pagina == AMIGO;
   if (conCara) {        // la hoja entera menos el lugar de la cara: a la derecha, arriba y abajo de ella
     lcd.setClipRect(CARA_X + CARA_LADO, 0, 320 - CARA_X - CARA_LADO, 204);
     lienzo.pushSprite(0, 0);
@@ -1511,17 +1820,13 @@ void dibujar() {
     lcd.clearClipRect();
     ponerCara(cuadroAmigo(millis()) == 1);
   } else {
-    if (conLienzo) lienzo.pushSprite(0, 0);
-    caraHecha = -1;     // la tapó otra pantalla o un cartel
+    if (conLienzo) lienzo.pushSprite(0, yHoja);
+    caraHecha = -1;     // la tapó otra pantalla
     // Sin hoja (si no hubo memoria) se borra todo en cada dibujo: la cara se vuelve a poner encima
-    if (!conLienzo && pagina == AMIGO && millis() >= mostrarCartelHasta) ponerCara(cuadroAmigo(millis()) == 1);
+    if (!conLienzo && pagina == AMIGO) ponerCara(cuadroAmigo(millis()) == 1);
   }
-  if (conLienzo) g = &lcd;
-  if (pestanasSucias || pestanaDibujada != pagina) {
-    dibujarPestanas();
-    pestanaDibujada = pagina;
-    pestanasSucias = false;
-  }
+  g = &lcd;
+  hojaY = 0;
   lcd.endWrite();
   sucio = false;
 }
@@ -1543,37 +1848,36 @@ void despertar() {
 
 // ---- toques ----
 void alTocar(int x, int y) {
-  if (y >= 200) {                                   // pestañas
-    int nueva = constrain(x / 80, 0, N_PAGINAS - 1);
-    if (nueva == JUEGO && pagina == JUEGO) juegoElegido = -1;   // tocar "Jugar" estando ahí vuelve al menú
-    pagina = nueva;
-    if (pagina == AMIGO) calentarAmigo = true;
-    sucio = true;
-    return;
-  }
-  if (pagina == LUCES && nLuces) {
-    int alto = (196 - 8) / nLuces;
-    int i = constrain((y - 6) / alto, 0, nLuces - 1);
-    if (x > 220) {
-      luces[i].encendida = !luces[i].encendida;   // se muestra ya, sin esperar al panel
-      mandar(i, luces[i].encendida ? "{\"encendida\":true}" : "{\"encendida\":false}");
+  bool volver = false;
+  if (pagina == AMIGO) {
+    // Para volver: la franja de abajo o tocar la cara (arriba a la izquierda)
+    if (y >= 204 || (x < CARA_X + CARA_LADO && y < 158)) volver = true;
+    else if (y >= 158) preguntarAmigo(constrain((x - 4) / 79, 0, N_FRASES - 1));
+  } else if (y < ALTO_BARRA) {
+    if (pagina != CASITA) volver = x < 120;              // la flechita "<"
+    else if (x >= BOTON_X - 2) {                         // Modos, Jugar o el amigo
+      int b = constrain((x - BOTON_X + 2) / BOTON_PASO, 0, 2);
+      pagina = b == 0 ? MODOS : b == 1 ? JUEGO : AMIGO;
+      if (pagina == AMIGO) calentarAmigo = true;
     }
-    elegida = i;
-    sucio = true;
+  } else if (pagina == CASITA) {
+    tocarCasita(x, y);
+  } else if (pagina == MODOS) {
+    tocarModos(x, y);
   } else if (pagina == JUEGO) {
     if (juegoElegido < 0) opcionMenu = x < 160 ? 0 : 1;
     moverEnJuego(x);
     accionJuego();
-  } else if (pagina == AMIGO && y >= 158) {
-    preguntarAmigo(constrain((x - 4) / 79, 0, N_FRASES - 1));
   }
+  if (volver) pagina = CASITA;
+  sucio = true;
 }
 
 // ---- calibración del táctil (la primera vez, o manteniendo apretada la primera perilla al prender) ----
 // Al prender, 3 segundos para tocar la pantalla y repetir la calibración (sirve aunque no haya perillas)
 bool tocandoAlPrender() {
   lcd.fillScreen(FONDO);
-  pestanasSucias = true;
+  barraSucia = true;
   texto("Toca la pantalla para calibrar", 160, 120, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
   lgfx::touch_point_t tp;
   for (int i = 0; i < 30; i++) {
@@ -1591,7 +1895,7 @@ void calibrarSiHaceFalta(bool permitirRepetir = true) {
     return;
   }
   lcd.fillScreen(FONDO);
-  pestanasSucias = true;
+  barraSucia = true;
   texto("Toca la punta de cada flecha", 160, 110, &fonts::FreeSans9pt7b, TEXTO, textdatum_t::middle_center);
   lcd.calibrateTouch(cal, ACENTO, FONDO, 18);
   prefs.putBytes("tactil", cal, sizeof cal);
@@ -1618,7 +1922,7 @@ bool girando() {
 void conectarWifi() {
   lcd.fillScreen(FONDO);
   caraHecha = -1;
-  pestanasSucias = true;
+  barraSucia = true;
   texto("Conectando al WiFi...", 160, 120, &fonts::FreeSans12pt7b, TENUE, textdatum_t::middle_center);
   // Prender el WiFi pide un pico de corriente: mientras conecta, la pantalla baja el brillo y la
   // antena no grita tan fuerte, así un USB flojito no se queda corto y la placa no se reinicia.
@@ -1654,6 +1958,7 @@ void setup() {
   prefs.begin("botonera");
   juego.record = prefs.getInt("record", 0);
   inv.record = prefs.getInt("record2", 0);
+  cuartosElegidos = prefs.getUChar("modosSel", 0x0F);
   nuevoInvasores();
   nuevoJuego();
   // Al despertar no se recalibra: la perilla 1 puede estar apretada justo porque la usaste para despertarla
@@ -1661,7 +1966,7 @@ void setup() {
   else calibrarSiHaceFalta(false);
   if (nExpansores < 2) {
     lcd.fillScreen(FONDO);
-    pestanasSucias = true;
+    barraSucia = true;
     texto("Encontre " + String(nExpansores) + " de 2 expansores", 160, 100, &fonts::FreeSans12pt7b, TEXTO, textdatum_t::middle_center);
     texto("Revisa los cables y los puentes A0-A2", 160, 130, &fonts::FreeSans9pt7b, TENUE, textdatum_t::middle_center);
     delay(4000);
@@ -1678,7 +1983,7 @@ void setup() {
   configTzTime("<-03>3", "pool.ntp.org", "time.google.com");   // hora de Argentina
   xTaskCreatePinnedToCore(tareaRed, "red", 12288, nullptr, 1, nullptr, 0);
   lcd.fillScreen(FONDO);
-  pestanasSucias = true;
+  barraSucia = true;
   ultimoUso = millis();
 }
 
@@ -1702,7 +2007,11 @@ void perillasJuego() {
   }
   if (PERILLA_AL_REVES) mover = -mover;
   if (mover || boton || volver) { despertar(); sucio = true; }
-  if (volver) { juegoElegido = -1; return; }   // mantener apretada una perilla: vuelve al menú
+  if (volver) {                              // mantener apretada una perilla: vuelve al menú (y desde el menú, a la casita)
+    if (juegoElegido < 0) pagina = CASITA;
+    juegoElegido = -1;
+    return;
+  }
   if (juegoElegido < 0) {
     if (mover % 2) opcionMenu ^= 1;
   } else if (mover) {
@@ -1725,6 +2034,7 @@ void revisarPerillas() {
     p.largo = false;
     portEXIT_CRITICAL(&muxPerillas);
 
+    if (pagina == MODOS && botones) { despertar(); pagina = CASITA; sucio = true; botones = 0; }   // en Modos, un clic vuelve
     if (largo) { despertar(); apagarTodo(); continue; }
     int i = perillaLuz[k];
     if (i < 0) continue;                     // perilla sin luz asignada (o su luz todavía no apareció)
@@ -1735,7 +2045,7 @@ void revisarPerillas() {
       brilloPendiente[i] = constrain(base + clics * 5, 1, 100);
       mandarBrilloEn[i] = millis();          // se manda enseguida: la tarea "red" junta los que se acumulan
       elegida = i;
-      mostrarCartel(BRILLO);
+      mostrarCapsulas(k);
     }
     if (botones % 2) {                        // dos clics seguidos se anulan
       despertar();
@@ -1778,17 +2088,18 @@ void revisarPerillaColor() {
   portEXIT_CRITICAL(&muxPerillas);
   if (!nLuces) return;
 
+  if (pagina == MODOS && botones) { despertar(); pagina = CASITA; sucio = true; botones = 0; }   // en Modos, un clic vuelve
   if (botones) {                             // cada clic pasa a la luz siguiente
     despertar();
     if (tonoPendiente >= 0) mandarTono();    // el color que quedó sin mandar va a la luz de antes
     elegida = (elegida + botones) % nLuces;
-    mostrarCartel(COLOR);
+    mostrarCapsulas(PERILLA_COLOR);
   }
   if (largo) {                               // vuelve a luz blanca
     despertar();
     tonoPendiente = -1;
     mandar(elegida, "{\"encendida\":true,\"blanco\":50}");
-    mostrarCartel(COLOR);
+    mostrarCapsulas(PERILLA_COLOR);
   }
   if (PERILLA_AL_REVES) clics = -clics;
   if (clics) {
@@ -1798,7 +2109,7 @@ void revisarPerillaColor() {
     tonoPendiente = ((base + clics * 15) % 360 + 360) % 360;   // 24 clics dan la vuelta entera
     tonoLuz = elegida;
     mandarTonoEn = millis();
-    mostrarCartel(COLOR);
+    mostrarCapsulas(PERILLA_COLOR);
   }
   if (tonoPendiente >= 0 && millis() > mandarTonoEn) mandarTono();
 }
@@ -1813,7 +2124,7 @@ void revisarTactil() {
     else { ultimoUso = millis(); alTocar(tp.x, tp.y); }
   }
   // En el juego la paleta sigue al dedo mientras lo arrastrás
-  if (hay && tocando && pagina == JUEGO && !atenuada && tp.y < 200) moverEnJuego(tp.x);
+  if (hay && tocando && pagina == JUEGO && !atenuada && tp.y >= ALTO_BARRA) moverEnJuego(tp.x);
   tocando = hay;
 }
 
@@ -1898,9 +2209,10 @@ void loop() {
   revisarHablar();
   ahora = millis();   // las perillas y el táctil pudieron cambiar ultimoUso: sin esto la resta da negativo y se atenúa enseguida
 
-  if (ahora - tMinuto > 15000) { tMinuto = ahora; revisarAlarma(); if (pagina == INICIO) sucio = true; }
+  if (ahora - tMinuto > 15000) { tMinuto = ahora; revisarAlarma(); if (pagina == CASITA) sucio = true; }
   if (mostrarCartelHasta && ahora > mostrarCartelHasta) { mostrarCartelHasta = 0; sucio = true; }
   revisarDestello();
+  if (modoTocado >= 0 && ahora > modoTocadoHasta) { modoTocado = -1; sucio = true; }   // se apaga el resaltado del modo
 
   // Juego: un cuadro cada 30 ms. Mientras la pelota se mueve, la pantalla no se apaga
   static unsigned long tCuadro = 0;
@@ -1925,7 +2237,7 @@ void loop() {
   if (!atenuada && ahora - ultimoUso > 30000) {
     atenuada = true;
     lcd.setBrightness(esDeNoche() ? 4 : 40);
-    if (pagina != INICIO) { pagina = INICIO; sucio = true; }
+    if (pagina != CASITA) { pagina = CASITA; sucio = true; }
   }
 
   if (sucio) dibujar();
