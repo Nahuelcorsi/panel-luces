@@ -209,9 +209,10 @@ cargarVoces();
 // Habla en idioma robot, como el Microduck: bips con el tono de su emoción y los ojos rebotando con cada uno.
 // Lo que dice queda escrito en la burbuja. (La voz con palabras de abajo quedó guardada por si vuelve.)
 function decir(texto) {
-  if (!ajustes.hablar) return;
+  if (!ajustes.hablar) return 0;
   const dura = bips.charla(texto, emocion, (i, d) => { abrirBoca(0.4 + Math.random() * 0.6); setTimeout(cerrarBoca, d * 1000); });
   setTimeout(cerrarBoca, dura * 1000 + 100);
+  return dura;   // segundos
 }
 function decirConPalabras(texto) {
   if (!ajustes.hablar) return;
@@ -332,11 +333,62 @@ async function pensarEnPi(sistema, mensajes) {
 }
 let crudoDelServidor = null, ultimaCharla = null;
 
-async function preguntar(texto) {
+// Lo mismo, pero por el WebSocket: la respuesta llega de a pedacitos mientras el cerebro la escribe.
+async function pensarEnVivo(sistema, mensajes, vivo) {
+  const data = await TR.pensar(sistema, mensajes, vivo.trozo, vivo.reiniciar);
+  crudoDelServidor = data.crudo || null;
+  ultimaCharla = data.charla || null;
+  return data.texto;
+}
+
+// Muestra la respuesta a medida que llega: la emoción apenas aparece, el texto que crece en la burbuja y los bips
+// de a una oración (en fila, sin pisarse). Así el Capsulito reacciona en 1-2 s aunque el cerebro tarde más.
+function respuestaEnVivo() {
+  let todo = '', inicio = -1, dicho = 0, cola = Promise.resolve();
+  const encolar = (frase) => {
+    if (!frase.trim()) return;
+    cola = cola.then(() => new Promise(listo => setTimeout(listo, decir(frase.trim()) * 1000 + 150)));
+  };
+  const vivo = {
+    empezo: false,
+    trozo(t) {
+      todo += t;
+      if (inicio < 0) {   // primero se espera la emoción "[feliz] ", que viene al principio
+        const m = todo.match(/^\s*\[([\wñé]+)\]\s*/);
+        if (m) { inicio = m[0].length; ponerCara(m[1].toLowerCase()); }
+        else if (!/^\s*\[/.test(todo) || todo.length > 20) { inicio = 0; ponerCara('neutral'); }
+        else return;
+      }
+      vivo.empezo = true;
+      const limpio = todo.slice(inicio);
+      ultimaActividad = Date.now();
+      $('burbuja').textContent = limpio;
+      // bips de las oraciones que ya terminaron
+      const fin = Math.max(...['. ', '! ', '? ', '… '].map(s => limpio.lastIndexOf(s)));
+      if (fin >= dicho) { encolar(limpio.slice(dicho, fin + 1)); dicho = fin + 2; }
+    },
+    reiniciar() {   // el cerebro se cayó a mitad de camino y arranca otro desde cero
+      todo = ''; inicio = -1; dicho = 0; vivo.empezo = false;
+      mostrar('Pensando de nuevo...', 'pensando');
+    },
+    terminar(final) {   // el texto completo que confirma el servidor (sin marcas, con avisos si algo falló)
+      const m = final.match(/^\s*\[([\wñé]+)\]\s*/);
+      const limpio = m ? final.slice(m[0].length) : final;
+      if (m) ponerCara(m[1].toLowerCase());
+      $('burbuja').textContent = limpio;
+      encolar(todo.slice(Math.max(inicio, 0)).slice(dicho));
+    },
+  };
+  return vivo;
+}
+
+async function preguntar(texto, vivo) {
   historial.push({ role: 'user', content: texto });
   const mensajes = historial.slice(-20);
   try {
-    const respuesta = modoPi || modoPanel
+    const respuesta = modoPanel && vivo && TR.conectado
+      ? await pensarEnVivo(promptSistema(), mensajes, vivo)
+      : modoPi || modoPanel
       ? await pensarEnPi(promptSistema(), mensajes)
       : await CEREBROS[ajustes.cerebro](promptSistema(), mensajes);
     historial.push({ role: 'assistant', content: (modoPanel && crudoDelServidor) || respuesta });
@@ -394,11 +446,17 @@ async function conversar(texto) {
   sonar('pensando');
   ocultarCalificar();
   try {
-    const crudo = await preguntar(texto);
-    const m = crudo.match(/^\s*\[([\wñé]+)\]\s*/);
-    const limpio = m ? crudo.slice(m[0].length) : crudo;
-    mostrar(limpio, m?.[1].toLowerCase());
-    decir(limpio);
+    const vivo = respuestaEnVivo();
+    const crudo = await preguntar(texto, vivo);
+    if (vivo.empezo) {
+      ultimaActividad = Date.now();
+      vivo.terminar(crudo);
+    } else {
+      const m = crudo.match(/^\s*\[([\wñé]+)\]\s*/);
+      const limpio = m ? crudo.slice(m[0].length) : crudo;
+      mostrar(limpio, m?.[1].toLowerCase());
+      decir(limpio);
+    }
     cargarRecuerdos();   // por si le pediste que se acuerde de algo o lo olvide
     mostrarCalificar();
   } catch (err) {
@@ -543,8 +601,10 @@ const REACCIONES_PC = {
 };
 let ultimoPc = null;   // null: todavía no miró; al abrir la página no reacciona a lo que ya había pasado
 async function mirarPc() {
-  try {
-    const e = await (await fetch('/api/amigo/pc')).json();
+  try { reaccionarPc(await (await fetch('/api/amigo/pc')).json()); } catch {}
+}
+function reaccionarPc(e) {
+  {
     const primera = ultimoPc === null;
     if (e.id === ultimoPc) return;
     ultimoPc = e.id || '';
@@ -563,7 +623,7 @@ async function mirarPc() {
       ponerCara(emo);
       sonar(emo);
     }
-  } catch {}
+  }
 }
 
 async function cargarDonde() {
@@ -588,10 +648,16 @@ listoPi.then(() => {
   $('donde').hidden = false;
   avisarPresencia(true);
   cargarDonde();
+  // En vivo por WebSocket: los avisos y lo que pasa en la PC llegan en el momento. Si la conexión no está, se
+  // consulta como antes (avisos cada 3 s, PC cada 2 s).
+  TR.on('aviso', a => recibirAviso(a.texto));
+  TR.on('pc', reaccionarPc);
+  TR.on('conectado', () => mirarPc());   // para no reaccionar a algo viejo al volver
+  TR.conectar({ pantalla, rol: 'amigo' });
   buscarAvisos();
-  setInterval(buscarAvisos, 3000);
+  setInterval(() => { if (!TR.conectado) buscarAvisos(); }, 3000);
   mirarPc();
-  setInterval(mirarPc, 2000);
+  setInterval(() => { if (!TR.conectado) mirarPc(); }, 2000);
   setInterval(cargarDonde, 15000);
 });
 
