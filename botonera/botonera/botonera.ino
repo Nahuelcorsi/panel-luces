@@ -35,6 +35,7 @@
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
 #include "config.h"
+#include "ws_panel.h"
 
 // Bus I2C de los expansores, en el conector CN1 de la placa
 const int PIN_SDA = 27, PIN_SCL = 22;
@@ -873,7 +874,22 @@ struct {
   bool oyendo = false;               // el panel está pasando tu grabación a texto
   bool conBips = false;              // la respuesta se va "diciendo" con un bip por palabra (los errores, callados)
   int emocionN = 0;                  // índice de la emoción en EMOCIONES[], para el timbre de los bips
+  bool enVivo = false;               // la respuesta llega de a pedacitos por el WebSocket y se sigue escribiendo
+  int nRespuesta = 0;                // sube con cada respuesta en vivo, para no confundirla con la anterior
 } amigo;
+
+// ---- En vivo con el panel (WebSocket, ver ws_panel.h y tiempo_real.py) ----
+// La conexión queda abierta: el panel avisa cada cambio de luz al instante y la respuesta del cerebro llega de a
+// pedacitos, así el amigo empieza a escribir en 1-2 s en vez de esperar la respuesta entera. Si no hay conexión,
+// todo sigue como antes (consultas cada 5 s y /cerebro por HTTP).
+WsPanel ws;                        // solo la usa la tarea "red"
+volatile bool wsListo = false;     // para las demás tareas: ¿está abierta?
+// Con el candado tomado:
+String pedidoWs;                   // pedido al cerebro que la tarea "red" tiene que mandar
+String fraseWs, crudoWs;           // la pregunta en curso y lo que va llegando de la respuesta
+bool esperandoWs = false, empezoWs = false;
+unsigned long tPedidoWs = 0;
+int idWs = 0;
 volatile int nivelMic = -1;   // 0-100 mientras graba (botón para hablar apretado); -1 = no está grabando
 
 String emocionDe(const String& t) {
@@ -928,6 +944,25 @@ void charlarConCerebro(const String& frase) {
   JsonObject yo = mensajes.add<JsonObject>();
   yo["role"] = "user";
   yo["content"] = frase;
+
+  // Con el WebSocket abierto, el pedido lo manda la tarea "red" y la respuesta se va escribiendo a medida que llega
+  // (ver manejarWs). Esta tarea termina acá.
+  xSemaphoreTake(candado, portMAX_DELAY);
+  if (wsListo && !esperandoWs) {
+    pedido["tipo"] = "pensar";
+    pedido["id"] = ++idWs;
+    pedidoWs = "";
+    serializeJson(pedido, pedidoWs);
+    fraseWs = frase;
+    crudoWs = "";
+    empezoWs = false;
+    esperandoWs = true;
+    tPedidoWs = millis();
+    xSemaphoreGive(candado);
+    return;
+  }
+  xSemaphoreGive(candado);
+
   String cuerpo;
   serializeJson(pedido, cuerpo);
 
@@ -987,8 +1022,9 @@ void tareaAmigo(void* param) {
 }
 
 void preguntarAmigo(int cual) {   // se llama con el candado tomado
-  if (amigo.pensando) return;
+  if (amigo.pensando || esperandoWs) return;
   amigo.pensando = true;
+  amigo.enVivo = false;
   amigo.emocion = "pensando";
   amigo.dijiste = "";
   sucio = true;
@@ -1092,6 +1128,7 @@ void tareaHablar(void*) {
   } else {
     xSemaphoreTake(candado, portMAX_DELAY);
     amigo.pensando = amigo.oyendo = true;
+    amigo.enVivo = false;
     amigo.emocion = "pensando";
     amigo.dijiste = "";
     sucio = true;
@@ -1135,7 +1172,7 @@ void tareaHablar(void*) {
 }
 
 void empezarAGrabar() {   // se llama con el candado tomado
-  if (grabando || amigo.pensando) return;
+  if (grabando || amigo.pensando || esperandoWs) return;
   grabando = true;
   // Prioridad alta y en el núcleo 1: las perillas siguen solas en el 0
   if (xTaskCreatePinnedToCore(tareaHablar, "hablar", 12288, nullptr, 5, nullptr, 1) != pdPASS) grabando = false;
@@ -1786,6 +1823,7 @@ struct {
   unsigned long desde = 0;
   bool tipeando = false, conBips = false;
   int atras = 0, vistas = 0, emocion = 0;
+  int n = -1;   // amigo.nRespuesta de lo que se está escribiendo
 } tipeo;
 const int GLOBO_X = 134, GLOBO_Y = 40, GLOBO_AN = 180, GLOBO_AL = 138;
 bool soloGlobo = false;   // en este dibujo cambió solo el texto del globito: se pasa a la pantalla solo ese pedazo
@@ -1794,13 +1832,31 @@ bool soloGlobo = false;   // en este dibujo cambió solo el texto del globito: s
 // coma. Los bips los pide el texto (uno por palabra), no al revés: así no va a los saltos.
 const int MS_POR_LETRA = 70, MS_PUNTO = 300, MS_COMA = 150, ESPERA_EMOCION = 700;
 
+long msHasta(const String& s, int letras) {   // cuánto tarda en escribirse lo primero de s
+  long hasta = 0;
+  for (int v = 0; v < letras && v < (int)s.length(); v++) {
+    char c = s[v];
+    hasta += MS_POR_LETRA + (c == '.' || c == '!' || c == '?' ? MS_PUNTO : c == ',' ? MS_COMA : 0);
+  }
+  return hasta;
+}
+
 int letrasVisibles(const String& s) {
-  if (s != tipeo.texto) {               // respuesta nueva: arranca de cero
-    tipeo.texto = s;
-    tipeo.desde = millis() + (amigo.conBips ? ESPERA_EMOCION : 0);   // primero suena el ruidito de la emoción
-    tipeo.atras = tipeo.vistas = 0;
-    tipeo.conBips = amigo.conBips;
-    tipeo.emocion = amigo.emocionN;
+  if (s != tipeo.texto) {
+    // En vivo la respuesta crece de a pedacitos: si es la misma y solo se agregó texto, se sigue escribiendo
+    // desde donde iba (y si ya había alcanzado al final, sigue desde ahora en vez de largar todo lo nuevo de golpe)
+    bool sigue = amigo.enVivo && tipeo.n == amigo.nRespuesta && tipeo.texto.length() && s.startsWith(tipeo.texto);
+    if (sigue) {
+      if (tipeo.vistas >= (int)tipeo.texto.length()) tipeo.desde = millis() - msHasta(tipeo.texto, tipeo.texto.length());
+      tipeo.texto = s;
+    } else {                            // respuesta nueva: arranca de cero
+      tipeo.texto = s;
+      tipeo.desde = millis() + (amigo.conBips ? ESPERA_EMOCION : 0);   // primero suena el ruidito de la emoción
+      tipeo.atras = tipeo.vistas = 0;
+      tipeo.conBips = amigo.conBips;
+      tipeo.emocion = amigo.emocionN;
+      tipeo.n = amigo.nRespuesta;
+    }
   }
   long t = (long)(millis() - tipeo.desde);
   int largo = s.length(), v = 0;
@@ -2465,6 +2521,122 @@ bool buscarPanel() {
   return false;
 }
 
+// ---- Mensajes en vivo del panel (todo con el candado tomado, salvo donde se dice) ----
+void terminarWs() {
+  esperandoWs = false;
+  pedidoWs = "";
+  amigo.pensando = amigo.oyendo = false;
+  ultimoUso = millis();                     // que la respuesta quede un rato a la vista
+  sucio = true;
+}
+
+void errorWs(const String& texto) {
+  amigo.emocion = "triste";
+  amigo.respuesta = texto;
+  amigo.conBips = amigo.enVivo = false;
+  terminarWs();
+}
+
+// Llegó la emoción del principio: la respuesta empieza a escribirse. Devuelve el ruidito que hay que tocar.
+int empezarRespuestaWs() {
+  empezoWs = true;
+  amigo.emocion = emocionDe(crudoWs);
+  int e = 0;
+  for (int i = 0; i < N_EMOCIONES; i++) if (amigo.emocion == EMOCIONES[i]) e = i;
+  amigo.emocionN = e;
+  amigo.conBips = amigo.enVivo = true;
+  amigo.nRespuesta++;
+  amigo.pensando = amigo.oyendo = false;    // deja de mostrar "Pensando..." (esperandoWs sigue frenando otra pregunta)
+  ultimoUso = millis();
+  sucio = true;
+  return S_EMOCION + e;
+}
+
+// "[feliz] Hola" ya se puede mostrar; "[fel" todavía no (falta saber la emoción)
+bool emocionLista(String s) {
+  s.trim();
+  if (!s.startsWith("[")) return s.length() > 0;
+  return s.indexOf(']') > 0 || s.length() > 20;
+}
+
+void manejarWs(const String& msg) {   // sin el candado: lo toma acá
+  JsonDocument doc;
+  if (deserializeJson(doc, msg)) return;
+  String tipo = doc["tipo"] | "";
+  int sonido = -1;
+  xSemaphoreTake(candado, portMAX_DELAY);
+  if (tipo == "luces") {                    // una luz cambió (desde donde sea): se pinta ya, salvo que la estés girando
+    for (JsonVariantConst j : doc["luces"].as<JsonArrayConst>())
+      for (int i = 0; i < nLuces; i++)
+        if (!luces[i].grupo && luces[i].id == (j["id"] | "") && !pendiente[i].length()) leerLuz(luces[i], j);
+    for (JsonVariantConst j : doc["grupos"].as<JsonArrayConst>())
+      for (int i = 0; i < nLuces; i++)
+        if (luces[i].grupo && luces[i].id == (j["id"] | "") && !pendiente[i].length()) leerLuz(luces[i], j);
+    sucio = true;
+  } else if (esperandoWs && (doc["id"] | -1) == idWs) {
+    if (tipo == "trozo") {
+      crudoWs += doc["texto"] | "";
+      if (!empezoWs && emocionLista(crudoWs)) sonido = empezarRespuestaWs();
+      if (empezoWs) { amigo.respuesta = paraPantalla(crudoWs); sucio = true; }
+    } else if (tipo == "reinicio") {        // el cerebro se cayó a mitad de camino y otro empieza de cero
+      crudoWs = "";
+      if (empezoWs) { empezoWs = false; amigo.pensando = true; amigo.emocion = "pensando"; sucio = true; }
+    } else if (tipo == "respuesta") {
+      String texto = doc["texto"] | "";
+      if (!texto.length()) {
+        errorWs("No se me ocurrio nada. Proba de nuevo.");
+      } else {
+        if (!empezoWs) { crudoWs = texto; sonido = empezarRespuestaWs(); }
+        amigo.respuesta = paraPantalla(texto);   // el texto final (con aviso si alguna acción falló)
+        if (amigo.nCharlas == 2) {               // se olvida la más vieja
+          amigo.pregunta[0] = amigo.pregunta[1];
+          amigo.contesto[0] = amigo.contesto[1];
+          amigo.nCharlas = 1;
+        }
+        amigo.pregunta[amigo.nCharlas] = fraseWs;
+        amigo.contesto[amigo.nCharlas++] = texto;
+        if (doc["acciones"].size()) pedirLuces = true;
+        terminarWs();
+      }
+    } else if (tipo == "error") {
+      errorWs("Uy, se me quemo el cerebro: " + paraPantalla(doc["mensaje"] | ""));
+    }
+  }
+  xSemaphoreGive(candado);
+  if (sonido >= 0) sonar(sonido);          // primero el ruidito de la emoción; después la va "diciendo" mientras se escribe
+}
+
+// Desde la tarea "red": conecta (y reconecta cada 5 s si se cortó), manda el pedido al cerebro y lee lo que llegó
+void atenderWs() {
+  static unsigned long tIntento = 0;
+  if (!ws.conectado()) {
+    if (wsListo) {
+      wsListo = false;
+      Serial.println("Tiempo real: se corto");
+      xSemaphoreTake(candado, portMAX_DELAY);
+      if (esperandoWs) errorWs("Se corto la conexion con el panel. Proba de nuevo.");
+      xSemaphoreGive(candado);
+    }
+    if (fallosPanel < 2 && (!tIntento || millis() - tIntento > 5000UL)) {
+      tIntento = millis();
+      if (ws.conectar(urlPanel(""), "/ws?rol=botonera")) {
+        wsListo = true;
+        pedirLuces = true;                  // ponerse al día con lo que cambió mientras estaba cortado
+        Serial.println("Tiempo real: conectado");
+      }
+    }
+    return;
+  }
+  xSemaphoreTake(candado, portMAX_DELAY);
+  String pedido = pedidoWs;
+  pedidoWs = "";
+  if (esperandoWs && millis() - tPedidoWs > 150000UL) errorWs("Tarde demasiado en pensar. Proba de nuevo.");
+  xSemaphoreGive(candado);
+  if (pedido.length()) ws.mandar(pedido);   // si falla, la conexión se da por cortada y avisa en la próxima vuelta
+  String msg;
+  for (int n = 0; n < 20 && ws.recibir(msg); n++) manejarWs(msg);
+}
+
 // Habla con el panel del celular, aparte del loop(), así la pantalla y las perillas nunca se traban
 void tareaRed(void*) {
   unsigned long tLuces = 0, tClima = 0, tAjustes = 0, tBusqueda = 0;
@@ -2476,6 +2648,7 @@ void tareaRed(void*) {
         if (buscarPanel()) tLuces = tClima = tAjustes = 0;   // y se le pide todo de nuevo
       }
       mandarPendientes();
+      atenderWs();
       if (pedirLuces) { pedirLuces = false; tLuces = 0; }
       if (calentarAmigo) {                 // /salud hace que la PC cargue el modelo de antemano
         calentarAmigo = false;
@@ -2492,8 +2665,10 @@ void tareaRed(void*) {
       bool quieto = !girando(), dormida = atenuada;
       xSemaphoreGive(candado);
       unsigned long ahora = millis();
-      // Cada consulta con su ritmo (más lento con la pantalla apagada)
-      if (!tLuces || (quieto && ahora - tLuces > (dormida ? 30000UL : 5000UL))) { tLuces = ahora; actualizarLuces(); }
+      // Cada consulta con su ritmo (más lento con la pantalla apagada). Con el WebSocket abierto los cambios de luz
+      // llegan solos: se consulta cada 30 s solo por lo que se cambie desde la app Smart Life.
+      unsigned long cadaLuces = wsListo || dormida ? 30000UL : 5000UL;
+      if (!tLuces || (quieto && ahora - tLuces > cadaLuces)) { tLuces = ahora; actualizarLuces(); }
       if (!tClima || ahora - tClima > 10 * 60000UL) { tClima = ahora; actualizarClima(); }
       if (!tAjustes || ahora - tAjustes > 5 * 60000UL) { tAjustes = ahora; actualizarAjustes(); }
     }
@@ -2540,7 +2715,7 @@ void loop() {
     avanzarTipeo();                       // va escribiendo la respuesta
     soloGlobo = !yaSucio && sucio;        // si lo único que cambió es el texto, se pasa solo el globito
   }
-  if (amigo.pensando) ultimoUso = ahora;     // esperando la respuesta, que no se vaya al inicio
+  if (amigo.pensando || esperandoWs) ultimoUso = ahora;     // esperando la respuesta, que no se vaya al inicio
 
   // A batería y desenchufada: a los 30 s sin uso se duerme del todo
   if (BATERIA && ahora - ultimoUso > 30000 && !girando() && !enchufada()) dormir();
