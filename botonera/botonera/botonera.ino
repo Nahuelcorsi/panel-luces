@@ -119,10 +119,18 @@ Preferences prefs;
 // Los oscuros de antes quedan para la pantalla del amigo (y la calibración)
 const uint32_t FONDO = 0x0b0d12, TARJETA = 0x1b1f2a, TEXTO = 0xf2f2f2, TENUE = 0x8a90a0, ACENTO = 0xffb347,
                PISTA = 0x2a2f3a, SIN_RED = 0x444444;
-// Estilo tierno y redondito: casita, cápsulas, Modos y juegos
-const uint32_t CREMA = 0xFFF4EA, TINTA = 0x3B2A4A, SUAVE = 0xA58FAE, ROSA = 0xFF8FB1, MENTA = 0x7FD8BE,
-               CELESTE = 0x8CC8FF, AMARILLO = 0xFFD36E, BLANCO = 0xFFFFFF, PLANO = 0xF3E4D8, APAGADA = 0xE6E0EE,
-               FONDO_CAPSULA = 0xF1E4EC, ELEGIDO = 0xFFE3EC, FONDO_JUEGO = 0xFBEAF2;
+// Estilo tierno y redondito: casita, cápsulas, Modos y juegos. MODO OSCURO.
+// Para volver al claro: CREMA 0xFFF4EA, TINTA 0x3B2A4A, SUAVE 0xA58FAE, PLANO 0xF3E4D8, APAGADA 0xE6E0EE,
+// FONDO_CAPSULA 0xF1E4EC, ELEGIDO 0xFFE3EC, FONDO_JUEGO 0xFBEAF2, y TARJETA_C/BORDE_CUARTO/NEUTRO = BLANCO.
+// (CREMA es "el fondo general" aunque ahora sea violeta oscuro; TINTA es el texto, ahora claro)
+const uint32_t CREMA = 0x1C1626, TINTA = 0xF3E9F5, SUAVE = 0x9C8AAE, ROSA = 0xFF8FB1, MENTA = 0x7FD8BE,
+               CELESTE = 0x8CC8FF, AMARILLO = 0xFFD36E, BLANCO = 0xFFFFFF, PLANO = 0x2A2236, APAGADA = 0x342A42,
+               FONDO_CAPSULA = 0x2E2540, ELEGIDO = 0x4A2A3C, FONDO_JUEGO = 0x221A2E,
+               TARJETA_C = 0x2E2540,      // tarjetas y globitos (antes blancos)
+               BORDE_CUARTO = 0x3A2F4A,   // bordes de los cuartos y rayitas
+               BORDE_MODO = 0x4A3F58,     // bordes de botones y cápsulas
+               NEUTRO = 0x4A4058, CASI_NEGRO = 0x14101C,
+               TINTA_OSCURA = 0x3B2A4A;   // letra sobre los colores claritos (amarillo, menta, rosa...)
 
 // ---- datos que vienen del panel ----
 struct Luz { String id, nombre; bool online = false, encendida = false, grupo = false; int brillo = 0; uint32_t color = 0; };
@@ -1237,7 +1245,7 @@ bool adentro(int x, int y, int cx, int cy, int an, int al) {
 // El color del cuarto: el de su luz mezclado con el crema según el brillo (apagada, gris clarito)
 uint32_t colorCuarto(int i) {
   if (i < 0 || !luces[i].online || !luces[i].encendida) return APAGADA;
-  return mezcla(CREMA, luces[i].color, 90 + constrain(luces[i].brillo, 0, 100) * 165 / 100);
+  return mezcla(PLANO, luces[i].color, 90 + constrain(luces[i].brillo, 0, 100) * 165 / 100);
 }
 
 String estadoLuz(int i) {
@@ -1249,8 +1257,8 @@ String estadoLuz(int i) {
 void dibujarCuarto(int k) {
   const Cuarto& c = CUARTOS[k];
   int i = buscarLuz(c.nombre);
-  uint32_t fondo = colorCuarto(i), letra = esOscuro(fondo) ? BLANCO : TINTA;
-  g->fillRoundRect(c.x, yh(c.y), c.an, c.al, 14, tinte(BLANCO));
+  uint32_t fondo = colorCuarto(i), letra = esOscuro(fondo) ? TINTA : TINTA_OSCURA;
+  g->fillRoundRect(c.x, yh(c.y), c.an, c.al, 14, tinte(BORDE_CUARTO));
   g->fillRoundRect(c.x + 3, yh(c.y + 3), c.an - 6, c.al - 6, 11, tinte(fondo));
   String nombre = i >= 0 ? luces[i].nombre : String(c.nombre);
   if (c.al >= 60) {        // nombre y brillo en dos renglones
@@ -1342,10 +1350,10 @@ void dibujarBarra(bool conBarra) {
       g->setFont(&fonts::Font2);
       int an = g->textWidth(alarma.hora) + 26, cx = BOTON_X - 6 - an;
       g->fillRoundRect(cx, 8, an, 20, 10, 0xFFF0C8);
-      g->fillRoundRect(cx + 6, 12, 9, 9, 4, TINTA);
-      g->fillRect(cx + 5, 19, 11, 2, TINTA);
-      g->fillCircle(cx + 10, 23, 1, TINTA);
-      texto(alarma.hora, cx + 20, 18, &fonts::Font2, TINTA, textdatum_t::middle_left);
+      g->fillRoundRect(cx + 6, 12, 9, 9, 4, TINTA_OSCURA);
+      g->fillRect(cx + 5, 19, 11, 2, TINTA_OSCURA);
+      g->fillCircle(cx + 10, 23, 1, TINTA_OSCURA);
+      texto(alarma.hora, cx + 20, 18, &fonts::Font2, TINTA_OSCURA, textdatum_t::middle_left);
     }
     botonesCasita();
   } else if (pagina == MODOS) {
@@ -1385,7 +1393,7 @@ void dibujarCapsula(int k, int x, int y, int an, int al, bool activa, int anEtiq
   uint32_t liquido = l.color ? l.color : ROSA;
   int apagar = activa ? 0 : 110;   // las que no estás girando, más tenues
 
-  g->fillRoundRect(x, yh(y), an, al, an / 2, BLANCO);
+  g->fillRoundRect(x, yh(y), an, al, an / 2, BORDE_MODO);
   int ix = x + 3, iy = y + 3, ian = an - 6, ial = al - 6;
   int lleno = prendida ? ial * brillo / 100 : 0;
   for (int f = 0; f < ial; f++) {   // fila por fila, así el líquido y el arcoíris respetan lo redondo
@@ -1395,7 +1403,7 @@ void dibujarCapsula(int k, int x, int y, int an, int al, bool activa, int anEtiq
   }
   if (color) {                      // rayita blanca donde está el tono de ahora
     int f = tono * ial / 360, m = margenFila(f, ian, ial);
-    g->fillRect(ix + m, yh(iy + f - 2), ian - 2 * m, 5, TINTA);
+    g->fillRect(ix + m, yh(iy + f - 2), ian - 2 * m, 5, TINTA_OSCURA);
     g->fillRect(ix + m, yh(iy + f - 1), ian - 2 * m, 3, BLANCO);
   }
   uint32_t letra = activa ? TINTA : SUAVE;
@@ -1430,10 +1438,10 @@ void foquito(int cx, int cy, bool prendido, uint32_t color) {
       float r = a * PI / 4;
       g->fillCircle(cx + (int)(cos(r) * 27), yh(cy + (int)(sin(r) * 27)), 3, AMARILLO);
     }
-  g->fillCircle(cx, yh(cy), 17, prendido ? color : APAGADA);
+  g->fillCircle(cx, yh(cy), 17, prendido ? color : BORDE_MODO);
   if (prendido) g->fillCircle(cx - 6, yh(cy - 6), 4, mezcla(color, BLANCO, 150));   // brillito
-  g->fillRoundRect(cx - 8, yh(cy + 14), 16, 12, 4, prendido ? SUAVE : 0xC9BFD3);       // la rosca
-  g->drawFastHLine(cx - 7, yh(cy + 19), 14, BLANCO);
+  g->fillRoundRect(cx - 8, yh(cy + 14), 16, 12, 4, prendido ? SUAVE : 0x5A4E6A);       // la rosca
+  g->drawFastHLine(cx - 7, yh(cy + 19), 14, TARJETA_C);
 }
 
 void dibujarAviso() {
@@ -1441,8 +1449,8 @@ void dibujarAviso() {
   Luz& l = luces[avisoLuz];
   bool prendida = l.encendida;
   uint32_t color = l.color ? l.color : AMARILLO;
-  g->fillRoundRect(50, yh(66), 220, 132, 26, prendida ? MENTA : APAGADA);   // borde de color
-  g->fillRoundRect(55, yh(71), 210, 122, 22, BLANCO);
+  g->fillRoundRect(50, yh(66), 220, 132, 26, prendida ? MENTA : BORDE_MODO);   // borde de color
+  g->fillRoundRect(55, yh(71), 210, 122, 22, TARJETA_C);
   foquito(110, 130, prendida, color);
   textoQueEntre(l.nombre, 150, yh(102), 108, &fonts::FreeSans9pt7b, SUAVE, textdatum_t::middle_left);
   texto(prendida ? "Prendida" : "Apagada", 150, yh(132), &fonts::FreeSansBold12pt7b, TINTA, textdatum_t::middle_left);
@@ -1452,7 +1460,7 @@ void dibujarAviso() {
 // ---- Sin conexión: el celu del panel no contesta ----
 void dibujarSinPanel() {
   g->fillRoundRect(30, yh(56), 260, 160, 26, ROSA);
-  g->fillRoundRect(35, yh(61), 250, 150, 22, BLANCO);
+  g->fillRoundRect(35, yh(61), 250, 150, 22, TARJETA_C);
   // una carita tristona: dos ojitos y la boquita para abajo
   g->fillRoundRect(64, yh(96), 10, 16, 5, TINTA);
   g->fillRoundRect(90, yh(96), 10, 16, 5, TINTA);
@@ -1468,10 +1476,10 @@ void dibujarSinPanel() {
 // Para agregar un modo, sumá una línea: nombre, color del botón, color de la letra y lo que se le manda al panel
 struct Modo { const char* nombre; uint32_t fondo, letra; const char* cuerpo; };
 const Modo MODOS_LUZ[] = {
-  {"Calido",    0xFFB05E, TINTA,  "{\"encendida\":true,\"blanco\":0,\"brillo\":70}"},
-  {"Neutro",    BLANCO,   TINTA,  "{\"encendida\":true,\"blanco\":50,\"brillo\":70}"},
+  {"Calido",    0xFFB05E, TINTA_OSCURA, "{\"encendida\":true,\"blanco\":0,\"brillo\":70}"},
+  {"Neutro",    NEUTRO,   TINTA,  "{\"encendida\":true,\"blanco\":50,\"brillo\":70}"},
   {"Modo telo", 0xE8304A, BLANCO, "{\"encendida\":true,\"color\":\"#ff0000\",\"brillo\":50}"},
-  {"Apagar",    TINTA,    BLANCO, "{\"encendida\":false}"},
+  {"Apagar",    CASI_NEGRO, TINTA, "{\"encendida\":false}"},
 };
 const int N_MODOS = sizeof MODOS_LUZ / sizeof *MODOS_LUZ;
 const int MODO_X = 166, MODO_AN = 146, MODO_Y = 40, MODO_ALTO_TOTAL = 192;
@@ -1529,8 +1537,8 @@ void dibujarModos() {
       g->fillCircle(c.mx + c.man - 13, y + c.mal - 13, 8, ROSA);
       tilde(c.mx + c.man - 13, y + c.mal - 13, BLANCO);
     } else {
-      g->fillRoundRect(c.mx, y, c.man, c.mal, 12, APAGADA);
-      bordePunteado(c.mx, y, c.man, c.mal, SUAVE);
+      g->fillRoundRect(c.mx, y, c.man, c.mal, 12, TARJETA_C);
+      g->drawRoundRect(c.mx, y, c.man, c.mal, 12, BORDE_MODO);
     }
     int i = buscarLuz(c.nombre);
     String nombre = i >= 0 ? luces[i].nombre : String(c.nombre);
@@ -1543,7 +1551,7 @@ void dibujarModos() {
     bool tocado = m == modoTocado && millis() < modoTocadoHasta;
     if (tocado) g->fillRoundRect(MODO_X - 2, y - 2, MODO_AN + 4, alto + 4, 16, ROSA);
     g->fillRoundRect(MODO_X, y, MODO_AN, alto, 14, d.fondo);
-    if (d.fondo == BLANCO) g->drawRoundRect(MODO_X, y, MODO_AN, alto, 14, SUAVE);
+    if (d.fondo == NEUTRO || d.fondo == CASI_NEGRO) g->drawRoundRect(MODO_X, y, MODO_AN, alto, 14, BORDE_MODO);
     iconoModo(m, MODO_X + 22, y + alto / 2, d.letra);
     texto(d.nombre, MODO_X + 40, y + alto / 2, &fonts::FreeSansBold9pt7b, d.letra, textdatum_t::middle_left);
   }
@@ -1581,7 +1589,7 @@ void dibujarArkanoid() {
   texto("Puntos " + String(juego.puntos), 6, 2, &fonts::Font2, TINTA);
   texto("Nivel " + String(juego.nivel), 160, 2, &fonts::Font2, SUAVE, textdatum_t::top_center);
   for (int i = 0; i < juego.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ROSA);
-  g->drawFastHLine(0, TECHO - 1, 320, 0xF0D2E0);
+  g->drawFastHLine(0, TECHO - 1, 320, BORDE_CUARTO);
   for (int f = 0; f < FILAS; f++)
     for (int c = 0; c < COLUMNAS; c++)
       if (juego.ladrillo[f][c])
@@ -1671,6 +1679,7 @@ void ponerCara(bool ojosCerrados) {
   int estado = (e * 2 + ojosCerrados) * 3 + (bip < 0 ? 0 : bip % 2 ? 1 : 2);
   if (estado == caraHecha) return;
   lcd.fillRect(CARA_X, CARA_Y, CARA_LADO, CARA_LADO, CREMA);   // alrededor de la carita, el fondo de la casita
+  lcd.fillRoundRect(CARA_X + 2, CARA_Y + 12, CARA_LADO - 4, CARA_LADO - 24, 24, BORDE_MODO);   // un bordecito para que se vea en lo oscuro
   lcd.fillRoundRect(CARA_X + 4, CARA_Y + 14, CARA_LADO - 8, CARA_LADO - 28, 22, PANTALLITA);
   int an = 28, al = 40, dx = 0, dy = 0;
   if (e == 3) { an = 34; al = 48; }          // sorprendido: ojos grandes
@@ -1722,7 +1731,7 @@ void dibujarInvasores() {
   texto("Puntos " + String(inv.puntos), 6, 2, &fonts::Font2, TINTA);
   texto("Oleada " + String(inv.oleada), 160, 2, &fonts::Font2, SUAVE, textdatum_t::top_center);
   for (int i = 0; i < inv.vidas; i++) g->fillCircle(310 - i * 12, 9, 4, ROSA);
-  g->drawFastHLine(0, TECHO - 1, 320, 0xF0D2E0);
+  g->drawFastHLine(0, TECHO - 1, 320, BORDE_CUARTO);
   for (int f = 0; f < INV_FIL; f++)
     for (int c = 0; c < INV_COL; c++)
       if (inv.vivo[f][c]) dibujarMarciano(inv.x + c * INV_PASO_X, inv.y + f * INV_PASO_Y, inv.pie, COLORES_FILA[f]);
@@ -1746,7 +1755,7 @@ void dibujarMenuJuegos() {
   for (int i = 0; i < 2; i++) {
     int x = 14 + i * 152;
     if (i == opcionMenu) g->fillRoundRect(x - 3, 37, 146, 136, 17, ROSA);
-    g->fillRoundRect(x, 40, 140, 130, 14, BLANCO);
+    g->fillRoundRect(x, 40, 140, 130, 14, TARJETA_C);
     if (i == 0) {   // dibujito: ladrillos, pelota y paleta
       for (int f = 0; f < 3; f++)
         for (int c = 0; c < 4; c++) g->fillRoundRect(x + 22 + c * 25, 56 + f * 11, 22, 8, 2, COLORES_FILA[f]);
@@ -1898,12 +1907,12 @@ void tocarGlobo(int y) {   // arriba: lo de antes; abajo: lo de después
 
 void dibujarAmigo() {
   int cuadro = cuadroAmigo(millis());   // la cara la pone ponerCara(), aparte
-  g->fillRoundRect(134, yh(40), 180, 138, 16, BLANCO);   // el globito de lo que dice
-  g->fillTriangle(136, yh(66), 136, yh(86), 129, yh(76), BLANCO);
+  g->fillRoundRect(134, yh(40), 180, 138, 16, TARJETA_C);   // el globito de lo que dice
+  g->fillTriangle(136, yh(66), 136, yh(86), 129, yh(76), TARJETA_C);
   int nivel = nivelMic;
   if (nivel >= 0) {                     // grabando: cuánto oye el micrófono
     texto("Te escucho...", 144, yh(50), &fonts::FreeSansBold9pt7b, TINTA);
-    g->fillRoundRect(144, yh(78), 160, 16, 8, FONDO_CAPSULA);
+    g->fillRoundRect(144, yh(78), 160, 16, 8, BORDE_MODO);
     if (nivel > 0) g->fillRoundRect(144, yh(78), constrain(nivel * 160 / 100, 16, 160), 16, 8, nivel > 85 ? 0xE8304A : ROSA);
     parrafo("Habla cerca del microfono y solta el boton cuando termines (5 segundos como mucho).", 143, yh(104), 164, 4,
             &fonts::Font2, SUAVE);
@@ -1922,7 +1931,7 @@ void dibujarAmigo() {
   for (int i = 0; i < N_FRASES; i++) {   // las frases rápidas, como pastillitas
     int x = 4 + i * 79;
     g->fillRoundRect(x, yh(186), 75, 34, 17, amigo.pensando ? APAGADA : COLORES[i % 4]);
-    texto(FRASES[i][0], x + 37, yh(203), &fonts::Font2, amigo.pensando ? SUAVE : TINTA, textdatum_t::middle_center);
+    texto(FRASES[i][0], x + 37, yh(203), &fonts::Font2, amigo.pensando ? SUAVE : TINTA_OSCURA, textdatum_t::middle_center);
   }
   texto("Mantene el boton para hablarme", 160, yh(231), &fonts::Font2, SUAVE, textdatum_t::middle_center);
 }
