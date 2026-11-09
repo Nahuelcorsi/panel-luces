@@ -1,7 +1,7 @@
 // Copia de la página del panel para que la app abra aunque el servidor del celular todavía no arrancó
 // (por ejemplo, el primer minuto después de prenderlo). Siempre intenta primero la versión del servidor.
-const CACHE = 'panel-v1';
-const ARCHIVOS = ['/', '/manifest.webmanifest', '/icono.svg'];
+const CACHE = 'panel-v2';
+const ARCHIVOS = ['/', '/manifest.webmanifest', '/icono.svg', '/tiempo-real.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARCHIVOS)).catch(() => {}));

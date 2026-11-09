@@ -23,10 +23,13 @@ import urllib.request
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import tiempo_real
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(BASE, "web")
 PUERTO = 8080
 DEMO = "--demo" in sys.argv
+CANAL = tiempo_real.Canal()   # pantallas conectadas por WebSocket (ver tiempo_real.py)
 TIPOS = {".html": "text/html; charset=utf-8", ".svg": "image/svg+xml",
          ".webmanifest": "application/manifest+json", ".js": "text/javascript", ".css": "text/css"}
 
@@ -287,6 +290,9 @@ class Grupo:
     def estado(self):
         """Prendido si alguna está prendida; brillo y color de la primera prendida (o de la primera que responda)."""
         estados, _ = en_paralelo(lambda l: l.estado(), self.luces())
+        return self.estado_desde(estados)
+
+    def estado_desde(self, estados):
         online = [e for e in estados if e and e.get("online")]
         prendidas = [e for e in online if e["encendida"]]
         ref = (prendidas or online or [{}])[0]
@@ -608,6 +614,40 @@ def anotar(texto):
     print(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), texto, flush=True)
 
 
+# ---- Aviso de luces por WebSocket ----
+# Cada vez que una luz cambia (desde el panel, la botonera, una rutina o el amigo) se manda su estado nuevo a todas las
+# pantallas conectadas. Se espera un ratito (AVISO_LUCES_SEG) para juntar cambios seguidos, por ejemplo mientras
+# deslizás el brillo, y mandar uno solo. Los cambios hechos desde la app Smart Life no pasan por acá: para eso las
+# pantallas igual refrescan cada tanto.
+AVISO_LUCES_SEG = 0.4
+LUCES_A_AVISAR = {"ids": set(), "timer": None}
+LOCK_AVISO_LUCES = threading.Lock()
+
+
+def avisar_luces(ids):
+    if not CANAL.lista():
+        return
+    with LOCK_AVISO_LUCES:
+        LUCES_A_AVISAR["ids"].update(ids)
+        if LUCES_A_AVISAR["timer"]:
+            LUCES_A_AVISAR["timer"].cancel()
+        LUCES_A_AVISAR["timer"] = threading.Timer(AVISO_LUCES_SEG, _mandar_luces)
+        LUCES_A_AVISAR["timer"].daemon = True
+        LUCES_A_AVISAR["timer"].start()
+
+
+def _mandar_luces():
+    with LOCK_AVISO_LUCES:
+        ids, LUCES_A_AVISAR["ids"], LUCES_A_AVISAR["timer"] = LUCES_A_AVISAR["ids"], set(), None
+    grupos = [g for g in GRUPOS.values() if ids & set(g.ids)]
+    todas = ids | {i for g in grupos for i in g.ids}   # para el estado del grupo hacen falta todas sus luces
+    luces = [LUCES[i] for i in todas if i in LUCES]
+    estados, _ = en_paralelo(lambda l: l.estado(), luces)
+    por_id = {l.id: e for l, e in zip(luces, estados) if e}
+    CANAL.avisar("luces", luces=[e for i, e in por_id.items() if i in ids],
+                 grupos=[g.estado_desde([por_id.get(i) for i in g.ids]) for g in grupos])
+
+
 def aplicar_a(ids, cambios, modo):
     parar_efectos(ids)   # las rutinas mandan sobre los efectos
     for ident in ids:
@@ -623,6 +663,7 @@ def aplicar_a(ids, cambios, modo):
             anotar(f"{modo}: no pude cambiar {luz.nombre}: {e}")
             if modo in ESTADO:
                 ESTADO[modo]["error"] = f"{luz.nombre}: {e}"
+    avisar_luces(ids)
 
 
 def parpadear(ids, veces=4):
@@ -899,6 +940,7 @@ def ejecutar_accion(partes):
         luz.aplicar(c)
     parar_efectos([l.id for l in luces])
     _, fallas = en_paralelo(una, luces)   # todas a la vez, así un grupo cambia junto
+    avisar_luces([l.id for l in luces])
     return (not fallas), ", ".join(fallas)
 
 
@@ -937,7 +979,20 @@ def pedir_post(url, cuerpo, headers, espera):
         raise RuntimeError(f"{e.code}: {e.read().decode(errors='replace')[:300]}")
 
 
-def pensar_local(cfg, sistema, mensajes):
+def pedir_lineas(url, cuerpo, headers, espera):
+    """Como pedir_post, pero va devolviendo la respuesta línea por línea a medida que llega (streaming)."""
+    req = urllib.request.Request(url, data=json.dumps(cuerpo).encode(), headers={"content-type": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=espera, context=SSL) as r:
+            for linea in r:
+                linea = linea.decode("utf-8", errors="replace").strip()
+                if linea:
+                    yield linea
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"{e.code}: {e.read().decode(errors='replace')[:300]}")
+
+
+def pensar_local(cfg, sistema, mensajes, al_trozo=None):
     """Ollama en la PC de la casa. Si no está prendida falla enseguida (no espera a que venza el timeout)."""
     url = cfg["local_url"].rstrip("/")
     if time.time() < LOCAL_CAIDO["hasta"]:
@@ -959,11 +1014,19 @@ def pensar_local(cfg, sistema, mensajes):
     if modelo not in cargados and f"{modelo}:latest" not in cargados:
         calentar_local()
         raise RuntimeError("la PC está cargando el modelo")
-    d = pedir_post(f"{url}/api/chat", {
-        "model": cfg.get("local_modelo", "gemma3:12b"), "stream": False, "options": {"num_predict": 300},
-        "keep_alive": cfg.get("local_mantener", "30m"),
-        "messages": [{"role": "system", "content": sistema}, *mensajes]}, {}, cfg.get("local_espera", 120))
-    return d.get("message", {}).get("content", "")
+    cuerpo = {"model": cfg.get("local_modelo", "gemma3:12b"), "stream": bool(al_trozo), "options": {"num_predict": 300},
+              "keep_alive": cfg.get("local_mantener", "30m"),
+              "messages": [{"role": "system", "content": sistema}, *mensajes]}
+    if not al_trozo:
+        return pedir_post(f"{url}/api/chat", cuerpo, {}, cfg.get("local_espera", 120)).get("message", {}).get("content", "")
+    # En streaming Ollama manda una línea JSON por pedacito: {"message": {"content": "Ho"}, "done": false}
+    texto = []
+    for linea in pedir_lineas(f"{url}/api/chat", cuerpo, {}, cfg.get("local_espera", 120)):
+        trozo = json.loads(linea).get("message", {}).get("content", "")
+        if trozo:
+            texto.append(trozo)
+            al_trozo(trozo)
+    return "".join(texto)
 
 
 CALENTADO = {"hasta": 0}
@@ -988,12 +1051,15 @@ def calentar_local():
     threading.Thread(target=trabajo, daemon=True).start()
 
 
-def pensar_gemini(cfg, sistema, mensajes, modelo=None, espera=60):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo or cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}:generateContent"
+def pensar_gemini(cfg, sistema, mensajes, modelo=None, espera=60, al_trozo=None):
+    base = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo or cfg.get('gemini_modelo', 'gemini-flash-lite-latest')}"
+    url = base + ":generateContent"
     cuerpo = {"systemInstruction": {"parts": [{"text": sistema}]},
               "contents": [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]} for m in mensajes],
               # sin pensar de antemano: contesta igual de bien y mucho más rápido
               "generationConfig": {"maxOutputTokens": 800, "thinkingConfig": {"thinkingLevel": "minimal"}}}
+    if al_trozo:
+        return pensar_gemini_en_trozos(cfg, base, cuerpo, espera, al_trozo)
     for intento in range(3):
         try:
             d = pedir_post(url, cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, espera)
@@ -1006,8 +1072,40 @@ def pensar_gemini(cfg, sistema, mensajes, modelo=None, espera=60):
     return "".join(p.get("text", "") for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []))
 
 
-def pensar_demo(sistema, mensajes):
-    """Cerebro de mentira para probar el panel sin PC ni claves (solo en modo demo)."""
+def pensar_gemini_en_trozos(cfg, base, cuerpo, espera, al_trozo):
+    """streamGenerateContent con alt=sse: cada pedacito llega como una línea "data: {...}" (Server-Sent Events)."""
+    texto = []
+    for intento in range(3):
+        try:
+            for linea in pedir_lineas(base + ":streamGenerateContent?alt=sse", cuerpo, {"x-goog-api-key": cfg["gemini_key"]}, espera):
+                if not linea.startswith("data:"):
+                    continue
+                d = json.loads(linea[5:])
+                for p in d.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                    if p.get("text") and not p.get("thought"):
+                        texto.append(p["text"])
+                        al_trozo(p["text"])
+            return "".join(texto)
+        except RuntimeError as e:
+            # mismo criterio que sin streaming, pero solo si todavía no salió nada
+            if texto or intento == 2 or not str(e).startswith(("503", "429")):
+                raise
+            time.sleep(2 + intento * 2)
+
+
+def pensar_demo(sistema, mensajes, al_trozo=None):
+    """Cerebro de mentira para probar el panel sin PC ni claves (solo en modo demo). En streaming larga la
+    respuesta de a una palabra, como haría un modelo de verdad."""
+    crudo = respuesta_demo(mensajes)
+    if al_trozo:
+        time.sleep(0.6)   # lo que tardaría en empezar a contestar
+        for palabra in re.findall(r"\S+\s*", crudo):
+            al_trozo(palabra)
+            time.sleep(0.12)
+    return crudo
+
+
+def respuesta_demo(mensajes):
     t = sin_tildes(mensajes[-1]["content"])
     if "apag" in t:
         return "[neutral] Listo, todo apagado. [accion:luz|todas|apagar]"
@@ -1021,18 +1119,22 @@ def pensar_demo(sistema, mensajes):
         return "[neutral] Ya lo borré. [olvidar:luz cálida]"
     if "inventa" in t:
         return "[pensando] Probemos algo raro. [accion:luz|cocina|apagar]"
+    if "cuento" in t or "larg" in t:
+        return ("[feliz] Había una vez un robotito de dos ojitos que vivía en un panel. Cada noche apagaba las luces "
+                "de a una, despacito, para que nadie se asustara. [accion:luz|todas|apagar] Y colorín colorado.")
     return "[pensando] Estoy en modo demo, Nahuel: sin cerebro de verdad."
 
 
 def cerebros_disponibles(cfg):
     orden = []
     if cfg.get("local_url"):
-        orden.append(("local", lambda s, m: pensar_local(cfg, s, m), cfg.get("local_modelo", "gemma3:12b")))
+        orden.append(("local", lambda s, m, t=None: pensar_local(cfg, s, m, t), cfg.get("local_modelo", "gemma3:12b")))
     if cfg.get("gemini_key"):
         # Primero el rápido (~1,5 s en las pruebas del 3/11; el lite tardaba 15-20 s) y el de amigo.json de respaldo
         rapido = cfg.get("gemini_rapido", "gemini-3.5-flash")
-        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m, rapido, 20), rapido))
-        orden.append(("gemini", lambda s, m: pensar_gemini(cfg, s, m), cfg.get("gemini_modelo", "gemini-flash-lite-latest")))
+        orden.append(("gemini", lambda s, m, t=None: pensar_gemini(cfg, s, m, rapido, 20, t), rapido))
+        orden.append(("gemini", lambda s, m, t=None: pensar_gemini(cfg, s, m, al_trozo=t),
+                      cfg.get("gemini_modelo", "gemini-flash-lite-latest")))
     # Medido el 3/11 desde el celular: Gemini rápido ~2-5 s y la PC ~45 s (con todo el estado de la casa el
     # modelo tarda en leer). Por eso la PC va de respaldo, salvo que amigo.json diga "primero": "pc".
     if cfg.get("primero", "gemini") != "pc" and orden and orden[0][0] == "local":
@@ -1042,16 +1144,68 @@ def cerebros_disponibles(cfg):
     return orden
 
 
-def pensar(sistema, mensajes):
-    """Prueba los cerebros en orden (PC, después Gemini). Devuelve (texto sin marcas, acciones, cerebro, texto crudo)."""
+class FiltroMarcas:
+    """En streaming, las marcas [accion:...] / [memoria:...] llegan partidas en varios pedacitos. Esto retiene lo que
+    empieza con "[" hasta ver el "]": si era una marca la saca; si no (por ejemplo la emoción "[feliz]") la deja pasar."""
+
+    def __init__(self, salida):
+        self.salida, self.pendiente = salida, ""
+
+    def agregar(self, trozo):
+        self.pendiente += trozo
+        listo = []
+        while self.pendiente:
+            i = self.pendiente.find("[")
+            if i == -1:
+                listo.append(self.pendiente)
+                self.pendiente = ""
+                break
+            listo.append(self.pendiente[:i])
+            j = self.pendiente.find("]", i)
+            if j == -1:
+                if len(self.pendiente) - i > 200:   # demasiado largo para ser una marca: no era
+                    listo.append(self.pendiente[i:])
+                    self.pendiente = ""
+                else:
+                    self.pendiente = self.pendiente[i:]
+                break
+            segmento = self.pendiente[i:j + 1]
+            if not MARCA.fullmatch(segmento):
+                listo.append(segmento)
+            self.pendiente = self.pendiente[j + 1:]
+        texto = "".join(listo)
+        if texto:
+            self.salida(texto)
+
+    def terminar(self):
+        if self.pendiente and not MARCA.fullmatch(self.pendiente):
+            self.salida(self.pendiente)
+        self.pendiente = ""
+
+
+def pensar(sistema, mensajes, al_trozo=None, al_reiniciar=None):
+    """Prueba los cerebros en orden (Gemini, después la PC). Devuelve (texto sin marcas, acciones, cerebro, texto
+    crudo, charla). Con al_trozo va pasando la respuesta de a pedacitos (sin las marcas) mientras se genera; si un
+    cerebro se cae a mitad de camino se llama a al_reiniciar() y el siguiente empieza de cero."""
     errores = []
     for nombre, usar, modelo in cerebros_disponibles(cargar_amigo()):
+        filtro = FiltroMarcas(al_trozo) if al_trozo else None
+        salio = []
+
+        def trozo(t, filtro=filtro, salio=salio):
+            salio.append(t)
+            filtro.agregar(t)
         try:
-            crudo = usar(sistema + "\n" + INSTRUCCIONES_CASA + "\n" + contexto_memoria() +
-                         "\n\nEstado de la casa:\n" + contexto_casa(), mensajes)
+            contexto = (sistema + "\n" + INSTRUCCIONES_CASA + "\n" + contexto_memoria() +
+                        "\n\nEstado de la casa:\n" + contexto_casa())
+            crudo = usar(contexto, mensajes, trozo) if al_trozo else usar(contexto, mensajes)
+            if filtro:
+                filtro.terminar()
         except Exception as e:
             errores.append(f"{nombre}: {e}")
             anotar(f"amigo: falló el cerebro {nombre}: {e}")
+            if salio and al_reiniciar:
+                al_reiniciar()
             continue
         if not crudo.strip():
             errores.append(f"{nombre}: respuesta vacía")
@@ -1244,10 +1398,16 @@ def pantalla_valida(nombre):
     return nombre if nombre in PANTALLAS else "panel"
 
 
+def pantallas_conectadas(ahora):
+    """Las que consultaron hace poco o tienen el WebSocket abierto."""
+    por_ws = CANAL.pantallas()
+    return [p for p in PANTALLAS if p in por_ws or ahora - VISTA.get(p, 0) < CONECTADA_SEG]
+
+
 def donde_hablar(ahora=None):
     """A qué pantalla va lo que el amigo dice por su cuenta."""
     ahora = ahora or time.time()
-    conectadas = [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG]
+    conectadas = pantallas_conectadas(ahora)
     salida = leer_ajustes_amigo()["salida"]
     if salida in conectadas:
         return salida
@@ -1263,7 +1423,7 @@ def estado_amigo():
     ahora = time.time()
     with LOCK_PRESENCIA:
         return {**leer_ajustes_amigo(), "habla_en": donde_hablar(ahora),
-                "conectadas": [p for p in PANTALLAS if ahora - VISTA.get(p, 0) < CONECTADA_SEG],
+                "conectadas": pantallas_conectadas(ahora),
                 "pendientes": {p: sum(a["destino"] == p for a in AVISOS) for p in PANTALLAS}}
 
 
@@ -1276,7 +1436,13 @@ def nuevo_aviso(texto):
         AVISOS[:] = [a for a in AVISOS if ahora - a["hora"] < AVISO_VENCE_SEG]
         aviso = {"id": uuid.uuid4().hex[:12], "texto": texto, "destino": donde_hablar(ahora), "hora": ahora}
         AVISOS.append(aviso)
-        return aviso
+    # Si esa pantalla tiene el WebSocket abierto le llega ya; si no, queda en la lista hasta que la venga a buscar
+    if CANAL.mandar_a(aviso["destino"], "aviso", solo_rol="amigo", id=aviso["id"], texto=aviso["texto"]):
+        with LOCK_PRESENCIA:
+            AVISOS[:] = [a for a in AVISOS if a["id"] != aviso["id"]]
+    else:   # la cara no está abierta: el inicio del panel la abre y, al conectarse, se lleva el aviso
+        CANAL.mandar_a(aviso["destino"], "hay_aviso", solo_rol="inicio")
+    return aviso
 
 
 def avisos_para(pantalla):
@@ -1312,6 +1478,7 @@ def nuevo_evento_pc(datos):
     with LOCK_PRESENCIA:
         EVENTO_PC.clear()
         EVENTO_PC.update(evento)
+    CANAL.avisar("pc", **evento, hace=0)
     return evento
 
 
@@ -1330,6 +1497,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(cuerpo)
 
     def do_GET(self):
+        if self.path.split("?")[0] == "/ws":
+            return self._websocket()
         if self.path == "/api/luces":
             return self._json([l.estado() for l in LUCES.values()])
         if self.path == "/api/grupos":
@@ -1374,6 +1543,40 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"panel": True, "tieneCerebro": bool(cerebros_disponibles(cfg)), "tieneVoz": bool(cfg.get("voz_url")),
                                "nombre": str(cfg.get("nombre") or NOMBRE_AMIGO)[:30]})
         self._estatico()
+
+    def _websocket(self):
+        """/ws?pantalla=panel&rol=amigo — la conexión queda abierta y por acá van los avisos en vivo y el cerebro en
+        streaming. Mensajes que entiende: {"tipo": "pensar", "id", "sistema", "mensajes"} y {"tipo": "toque"}."""
+        consulta = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        rol = consulta.get("rol", ["inicio"])[0]
+        if rol not in ("inicio", "amigo", "botonera"):
+            rol = "inicio"
+        pantalla = "botonera" if rol == "botonera" else pantalla_valida(consulta.get("pantalla", [""])[0])
+        conexion = tiempo_real.aceptar(self, CANAL, pantalla, rol)
+        if conexion is None:
+            return
+        anotar(f"tiempo real: se conectó {rol} ({pantalla})")
+        try:
+            if rol == "amigo":   # lo que quedó esperando mientras estaba cerrada
+                for a in avisos_para(pantalla):
+                    conexion.mandar("aviso", **a)
+            for mensaje in conexion.mensajes():
+                self._mensaje_ws(conexion, mensaje)
+        finally:
+            CANAL.sacar(conexion)
+            conexion.cerrar()
+            if pantalla in PANTALLAS:   # cuenta como vista recién, igual que si hubiera consultado
+                with LOCK_PRESENCIA:
+                    VISTA[pantalla] = time.time()
+            anotar(f"tiempo real: se fue {rol} ({pantalla})")
+
+    def _mensaje_ws(self, conexion, mensaje):
+        tipo = mensaje.get("tipo")
+        if tipo == "toque" and conexion.pantalla in PANTALLAS:
+            tocar(conexion.pantalla)
+        elif tipo == "pensar":
+            # en otro hilo: mientras piensa, esta conexión sigue atendiendo pings y otros mensajes
+            threading.Thread(target=pensar_por_ws, args=(conexion, mensaje), daemon=True).start()
 
     def _estatico(self):
         """Sirve los archivos de web/ (solo de esa carpeta)."""
@@ -1487,6 +1690,7 @@ class Handler(BaseHTTPRequestHandler):
                 grupo.aplicar(cuerpo)
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+            avisar_luces(grupo.ids)
             return self._json(grupo.estado())
         if not self.path.startswith("/api/luces/"):
             return self.send_error(404)
@@ -1498,10 +1702,25 @@ class Handler(BaseHTTPRequestHandler):
             luz.aplicar(cuerpo)
         except Exception as e:
             return self._json({"error": str(e)}, 400)
+        avisar_luces([luz.id])
         self._json(luz.estado())
 
     def log_message(self, *args):
         pass
+
+
+def pensar_por_ws(conexion, mensaje):
+    """Igual que /cerebro, pero manda la respuesta de a pedacitos: "trozo" (varios), "reinicio" (si un cerebro se
+    cayó a mitad de camino y empieza otro: hay que borrar lo mostrado) y al final "respuesta" o "error"."""
+    ident = mensaje.get("id")
+    try:
+        texto, acciones, cerebro, crudo, charla = pensar(
+            str(mensaje.get("sistema", "")), list(mensaje.get("mensajes") or []),
+            al_trozo=lambda t: conexion.mandar("trozo", id=ident, texto=t),
+            al_reiniciar=lambda: conexion.mandar("reinicio", id=ident))
+        conexion.mandar("respuesta", id=ident, texto=texto, acciones=acciones, cerebro=cerebro, crudo=crudo, charla=charla)
+    except Exception as e:
+        conexion.mandar("error", id=ident, mensaje=str(e))
 
 
 class Servidor(ThreadingHTTPServer):

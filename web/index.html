@@ -354,6 +354,7 @@
   <div class="pista">Tocá la pantalla para volver</div>
 </div>
 
+<script src="/tiempo-real.js"></script>
 <script>
 const inicio = document.getElementById('inicio');
 const detalle = document.getElementById('detalle');
@@ -903,7 +904,14 @@ function pintarSalas() {
 document.getElementById('p-luces').onclick = () => grillaLuces.scrollIntoView({ behavior: 'smooth' });
 
 cargarSalas().then(refrescar);
-setInterval(refrescar, 4000);
+// Con el WebSocket abierto, el servidor avisa cada cambio de luz al instante (ver TR.on('luces') más abajo) y acá
+// solo se refresca cada 30 s, por los cambios hechos desde la app Smart Life. Sin WebSocket, cada 4 s como antes.
+let ultimoRefresco = 0;
+setInterval(() => {
+  if (TR.conectado && Date.now() - ultimoRefresco < 30000) return;
+  ultimoRefresco = Date.now();
+  refrescar();
+}, 4000);
 refrescarEfectos();
 setInterval(refrescarEfectos, 10000);
 setInterval(cargarSalas, 60000);   // por si se reinició el servidor con salas nuevas
@@ -1055,7 +1063,13 @@ async function revisarAmigo() {
     if (e.pendientes?.[pantallaAmigo] && abierta !== amigo) { ultimoToque = Date.now(); abrirAmigo(); }
   } catch (e) {}
 }
-setInterval(revisarAmigo, 4000);
+setInterval(() => { if (!TR.conectado) revisarAmigo(); }, 4000);
+
+// ---- en vivo (WebSocket, ver web/tiempo-real.js) ----
+TR.on('luces', d => { (d.luces || []).forEach(pintar); aviso.classList.add('oculta'); });
+TR.on('hay_aviso', () => { if (abierta !== amigo) { ultimoToque = Date.now(); abrirAmigo(); } });
+TR.on('conectado', () => { refrescar(); revisarAmigo(); });   // ponerse al día con lo que pasó mientras estaba cortado
+TR.conectar({ pantalla: pantallaAmigo, rol: 'inicio' });
 let presenciaAmigo = 0;
 addEventListener('pointerdown', () => {
   if (Date.now() - presenciaAmigo < 20000) return;

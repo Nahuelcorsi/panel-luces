@@ -10,6 +10,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - Botonera: la pestaña «Amigo» dibuja los mismos ojitos (sin imágenes) y usa la personalidad y el nombre nuevos.
 
 ### Agregado
+- **Tiempo real con WebSocket** (`/ws`, hecho a mano en `tiempo_real.py`, sin dependencias): el panel, la cara del amigo y la botonera quedan conectados y el servidor les avisa al instante los cambios de luz (de donde vengan), lo que el amigo dice por su cuenta y lo que pasa en la PC. La respuesta del cerebro (Gemini u Ollama) llega de a pedacitos: el amigo empieza a escribir y a hacer bips en 1-2 s en vez de esperar la respuesta entera. Sin conexión, todo vuelve a consultar como antes. La botonera usa su propio cliente (`botonera/botonera/ws_panel.h`).
 - El amigo habla por la pantalla que estás usando: el panel, la PC o el celular avisan al servidor cuando los tocás y `/api/amigo/aviso` manda lo que diga por su cuenta a la última que usaste (o al panel). En «Por dónde habla» se fija la salida y se prueba.
 - El amigo en la PC: `pc/amigo_pc.py` (o `pc/amigo-pc.bat`, con la IP del celular del panel) abre su pantalla en el navegador de la PC, con el micrófono y los parlantes de la PC, haciendo de puente en `localhost` hacia el panel.
 - Calificar las respuestas con 👍/👎 (y una corrección opcional en las 👎): cada charla tiene un `id` y `/api/entrenamiento` arma el archivo para entrenar con las buenas y las corregidas.
