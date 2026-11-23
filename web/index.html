@@ -3,274 +3,281 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d12">
+<meta name="theme-color" content="#17191c">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icono.svg">
 <title>Mi casa</title>
+<link rel="preload" href="/fuentes/chivo-mono.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* Consola: el panel es una mesa de sonido. Un fader por sala, teclas con lucecita, números en mono. */
+  @font-face { font-family: "Chivo"; src: url(/fuentes/chivo.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+  @font-face { font-family: "Chivo Mono"; src: url(/fuentes/chivo-mono.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
   :root {
-    --fondo: #0b0d12;
-    --texto: #f4f6fa;
-    --suave: rgba(244, 246, 250, .55);
-    --vidrio: rgba(255, 255, 255, .07);
-    --borde: rgba(255, 255, 255, .10);
+    --fondo: #17191c;      /* chasis */
+    --canal: #222529;      /* placa de cada canal */
+    --hueco: #121417;      /* ranura del fader */
+    --tecla: #2d3136;      /* teclas */
+    --tecla-on: #3a3f45;
+    --texto: #ebe8e2;
+    --suave: #8b8f95;
+    --tenue: #4a4f56;
+    --perilla: #f2efe8;    /* cabezal del fader */
+    --ambar: #ffb35c;      /* LEDs de estado que no son una luz */
+    --verde: #7ed08a;
+    --mono: "Chivo Mono", ui-monospace, "Roboto Mono", monospace;
+    --sans: "Chivo", system-ui, Roboto, sans-serif;
+    --r: 10px;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body, button { touch-action: manipulation; }   /* sin zoom: ni pellizco ni doble toque */
-  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--texto);
-               font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  button { font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+  html, body, button { touch-action: manipulation; }   /* sin zoom con doble toque */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--texto); font: 16px/1.35 var(--sans);
+               user-select: none; -webkit-user-select: none; }
+  button { font: inherit; color: inherit; cursor: pointer; text-align: inherit; border: 0; background: none; padding: 0; }
+  button:focus-visible { outline: 2px solid var(--perilla); outline-offset: 2px; }
   .oculta { display: none !important; }
+  #ambiente { display: none; }
+  h2 { margin: 0 2px 8px; font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--suave); }
 
-  /* Fondo que toma el color de lo que se está viendo */
-  #ambiente { position: fixed; inset: 0; transition: background 1s ease;
-              background: radial-gradient(120% 70% at 50% 28%, var(--ambiente, #1a1f2b) 0%, transparent 65%); opacity: .55; }
-
-  /* ---- Inicio: reloj + mosaicos ---- */
-  #inicio { position: fixed; inset: 0; overflow-y: auto; scrollbar-width: none;
-            padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+  /* ---------- Inicio ---------- */
+  #inicio { position: fixed; inset: 0; overflow-y: auto; scrollbar-width: none; display: grid; gap: 12px;
+            grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "cab" "mesa" "esc" "teclas";
+            padding: calc(14px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   #inicio::-webkit-scrollbar { display: none; }
-  #inicio > * { max-width: 520px; margin-left: auto; margin-right: auto; }
-  .reloj { text-align: center; margin-bottom: 26px; }
-  .reloj .hora { font-size: 72px; font-weight: 700; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
-  .reloj .fecha { margin-top: 6px; color: var(--suave); font-size: 16px; }
-  h2 { margin: 0 4px 10px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--suave); }
-  .bloque { margin-bottom: 24px; }
+  .reloj { grid-area: cab; display: flex; flex-direction: column; gap: 4px; padding: 0 4px; }
+  .tira { display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 400 12px/1 var(--mono); color: var(--suave);
+          text-transform: uppercase; letter-spacing: .04em; }
+  .tira .fecha-corta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  .pastilla { font: inherit; color: var(--suave); white-space: nowrap; padding: 6px 0; }
+  .pastilla b { color: var(--texto); font-weight: 500; }
+  .reloj .fila-hora { display: flex; justify-content: space-between; align-items: flex-end; }
+  .reloj .hora { font: 400 64px/1 var(--mono); letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+  #p-luces { font: 400 12px/1 var(--mono); color: var(--suave); text-transform: uppercase; display: flex; align-items: center; gap: 6px; padding-bottom: 8px; }
+  #p-luces b { color: var(--texto); font-weight: 500; }
+  #p-luces::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--ambar); box-shadow: 0 0 8px var(--ambar); }
 
-  .escenas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-  .escena { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 20px; padding: 12px 2px 10px;
-            display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 12.5px; color: var(--suave); transition: all .2s; }
-  .escena span { font-size: 28px; line-height: 1; }
-  .escenas.sin-luces .escena { opacity: .35; pointer-events: none; }
-  /* Selector de luces para las escenas */
-  .selector { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-  .chip { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px 7px 10px; font-size: 14px;
-          color: var(--suave); display: flex; align-items: center; gap: 7px; transition: all .2s; }
-  .chip i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--suave); display: grid; place-items: center; font-style: normal; font-size: 11px; }
-  .chip.sel { background: rgba(255, 255, 255, .9); color: #101218; border-color: transparent; }
-  .chip.sel i { background: #101218; border-color: #101218; color: #fff; }
-  .escena:active, .escena.tocada { background: rgba(255, 255, 255, .2); color: var(--texto); transform: scale(.96); }
+  /* La mesa: un canal por sala o luz suelta */
+  #grilla-luces { grid-area: mesa; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; min-height: 280px; }
+  .canal { position: relative; background: var(--canal); border-radius: var(--r); padding: 10px 8px 8px; display: flex; flex-direction: column;
+           gap: 8px; min-width: 0; min-height: 0; }
+  .canal .lectura { font: 500 15px/1 var(--mono); text-align: center; color: var(--suave); font-variant-numeric: tabular-nums;
+                    text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 15px; }
+  .canal.on .lectura { color: var(--texto); }
+  .canal .fader { position: relative; flex: 1; min-height: 120px; border-radius: 7px; background: var(--hueco); overflow: hidden;
+                  touch-action: none; cursor: ns-resize; }
+  .canal .relleno { position: absolute; left: 0; right: 0; bottom: 0; height: var(--p, 0%);
+                    background: linear-gradient(to top, color-mix(in srgb, var(--color, #ffb347) 45%, #000), var(--color, #ffb347));
+                    opacity: .18; transition: height .3s, opacity .3s; }
+  .canal.on .relleno { opacity: 1; }
+  .canal.arrastrando .relleno { transition: none; }
+  .canal .fader::before { content: ""; position: absolute; z-index: 1; left: 50%; top: 10px; bottom: 10px; width: 2px; margin-left: -1px;
+                          background: repeating-linear-gradient(to bottom, rgba(255,255,255,.10) 0 1px, transparent 1px 10%); }
+  .canal .fader::after { content: ""; position: absolute; z-index: 2; left: 7px; right: 7px; height: 8px; border-radius: 3px;
+                         bottom: clamp(2px, calc(var(--p, 0%) - 4px), calc(100% - 10px)); background: var(--perilla);
+                         box-shadow: 0 2px 6px rgba(0,0,0,.6); transition: bottom .3s; }
+  .canal:not(.on) .fader::after { background: #9a9da2; }
+  .canal.arrastrando .fader::after { transition: none; }
+  .canal .gran-pct { position: absolute; z-index: 3; inset: 0; display: grid; place-items: center; font: 500 30px/1 var(--mono);
+                     color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.8); opacity: 0; transition: opacity .15s; pointer-events: none; }
+  .canal.arrastrando .gran-pct { opacity: 1; }
+  .canal .abrir { display: flex; align-items: center; justify-content: center; gap: 4px; min-height: 30px; font-weight: 700; font-size: 15px;
+                  text-align: center; min-width: 0; }
+  .canal .m-titulo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .canal .abrir::after { content: "›"; color: var(--suave); font-weight: 400; font-size: 18px; line-height: 1; }
+  .canal .puntos { display: flex; justify-content: center; gap: 5px; height: 6px; margin-top: -4px; flex: none; }
+  .canal .puntos i { width: 6px; height: 6px; border-radius: 2px; background: var(--tenue); }
+  .canal .puntos i.on { background: var(--c); box-shadow: 0 0 6px var(--c); }
+  .canal .m-power { height: 46px; border-radius: 7px; background: var(--tecla); display: grid; place-items: center;
+                    box-shadow: inset 0 -3px 0 rgba(0,0,0,.35); transition: transform .08s; }
+  .canal .m-power:active { transform: translateY(1px); box-shadow: inset 0 -1px 0 rgba(0,0,0,.35); }
+  .canal .m-power span { width: 26px; height: 6px; border-radius: 3px; background: var(--tenue); transition: background .2s, box-shadow .2s; }
+  .canal.on .m-power span { background: var(--color); box-shadow: 0 0 10px var(--color), 0 0 2px var(--color); }
+  .canal.offline { opacity: .4; }
+  .canal.offline .fader { pointer-events: none; }
+  .canal.mini { min-height: 280px; }
 
-  .grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .mosaico { position: relative; border: 1px solid var(--borde); background: var(--vidrio); border-radius: 24px;
-             min-height: 132px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;
-             transition: background .4s, border-color .4s, box-shadow .4s; overflow: hidden; }
-  .mosaico:active { transform: scale(.98); }
-  .mosaico .m-icono { font-size: 30px; line-height: 1; }
-  .mosaico .m-titulo { font-size: 17px; font-weight: 650; margin-top: 10px; }
-  .mosaico .m-sub { color: var(--suave); font-size: 14px; }
-  .mosaico .m-grande { font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums; }
-  .mosaico.ancho { grid-column: span 2; min-height: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px; }
+  /* Escenas: barra de botones al estilo de una botonera de presets */
+  .bloque-escenas { grid-area: esc; display: flex; flex-direction: column; gap: 8px; }
+  .escenas { display: flex; gap: 4px; background: var(--canal); border-radius: var(--r); padding: 4px; }
+  .escena { flex: 1; padding: 14px 0; border-radius: 7px; font: 500 12px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+            color: var(--suave); text-align: center; transition: background .15s, color .15s; }
+  .escena:active, .escena.tocada { background: var(--tecla-on); color: var(--texto); }
+  .escenas.sin-luces .escena { opacity: .3; pointer-events: none; }
+  .selector { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 2px; }
+  .selector::before { content: "Escenas en"; font: 400 11px/1 var(--mono); color: var(--suave); text-transform: uppercase; letter-spacing: .08em; margin-right: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 7px 10px; background: var(--canal); font-size: 13px; color: var(--suave); }
+  .chip i { width: 7px; height: 7px; border-radius: 2px; background: var(--tenue); font-size: 0; }
+  .chip.sel { color: var(--texto); }
+  .chip.sel i { background: var(--ambar); box-shadow: 0 0 6px var(--ambar); }
 
-  /* Mosaico de luz: se tiñe con el color de la luz cuando está prendida */
-  .m-luz .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
-  .m-luz .m-icono { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .08);
-                    transition: all .4s; position: relative; pointer-events: none; }
-  .m-luz .m-icono svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.2; stroke-linecap: round; }
-  .m-luz .textos { pointer-events: none; position: relative; }
-  .m-luz .m-power { position: absolute; top: 12px; right: 12px; width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--borde);
-                    background: rgba(255, 255, 255, .06); display: grid; place-items: center; }
-  .m-luz .m-power svg { width: 22px; height: 22px; stroke: var(--suave); fill: none; stroke-width: 2.4; stroke-linecap: round; }
-  .m-luz.on { background: color-mix(in srgb, var(--color) 20%, rgba(255, 255, 255, .05)); border-color: color-mix(in srgb, var(--color) 45%, transparent);
-              box-shadow: 0 0 40px -8px color-mix(in srgb, var(--color) 55%, transparent); }
-  .m-luz.on .m-icono { background: var(--color); box-shadow: 0 0 22px color-mix(in srgb, var(--color) 80%, transparent); }
-  .m-luz.on .m-icono svg { stroke: #101218; }
-  .m-luz.on .m-power { background: rgba(255, 255, 255, .9); border-color: transparent; }
-  .m-luz.on .m-power svg { stroke: #101218; }
-  .m-luz.offline { opacity: .45; }
+  /* Fila de teclas de abajo: despertador, modo trabajo, noche y voz */
+  .teclas { grid-area: teclas; display: grid; grid-template-columns: 1fr 1fr .7fr .7fr; gap: 8px; }
+  .mosaico { position: relative; background: var(--canal); border-radius: var(--r); padding: 10px 12px; min-height: 74px; display: flex;
+             flex-direction: column; justify-content: space-between; text-align: left; overflow: hidden; }
+  .mosaico .m-icono { display: none; }
+  .mosaico .m-titulo { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .02em; color: var(--suave); padding: 5px 0 0; }
+  .mosaico .m-sub { color: var(--suave); font-size: 12px; line-height: 1.25; }
+  .mosaico .m-grande { font: 400 24px/1 var(--mono); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .m-rutina .abrir { position: absolute; inset: 0; }
+  .m-rutina .textos { pointer-events: none; position: relative; display: flex; flex-direction: column; gap: 6px; }
+  #m-trabajo .m-sub { font-size: 14px; color: var(--texto); }
+  .m-rutina .interruptor { position: absolute; top: 8px; right: 8px; }
+  .tecla-simple { align-items: center; justify-content: center; gap: 6px; font: 500 11px/1 var(--mono); text-transform: uppercase;
+                  letter-spacing: .06em; color: var(--suave); text-align: center; }
+  .tecla-simple svg { width: 24px; height: 24px; stroke: var(--texto); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .mosaico:active { background: var(--tecla); }
+  /* el interruptor es una lucecita: verde si está activado */
+  .interruptor { width: 20px; height: 20px; border-radius: 5px; background: var(--tecla); position: relative; flex: none; }
+  .interruptor::after { content: ""; position: absolute; inset: 7px; border-radius: 2px; background: var(--tenue); transition: all .2s; }
+  .interruptor.on::after { background: var(--verde); box-shadow: 0 0 8px var(--verde); }
 
-  /* Brillo dentro del mosaico: se llena según el brillo y se cambia arrastrando de costado */
-  .m-luz { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
-  .m-luz .relleno { position: absolute; inset: 0 auto 0 0; width: 0; background: color-mix(in srgb, var(--color) 26%, transparent);
-                    transition: width .3s; pointer-events: none; }
-  .m-luz.on .relleno { width: var(--p, 0%); }
-  .m-luz.arrastrando .relleno { transition: none; }
-  .m-luz .gran-pct { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 44px;
-                     font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; opacity: 0; transition: opacity .2s; }
-  .m-luz.arrastrando .gran-pct { opacity: 1; }
-  .m-luz.arrastrando .textos, .m-luz.arrastrando .m-icono { opacity: .15; }
+  /* Horizontal (celu acostado en el soporte): reloj y botones a la izquierda, la mesa a la derecha */
+  @media (orientation: landscape) {
+    #inicio { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); grid-template-rows: auto 1fr auto;
+              grid-template-areas: "cab mesa" "esc mesa" "teclas mesa"; overflow: hidden; }
+    .reloj .hora { font-size: 52px; }
+    .bloque-escenas { align-self: end; }
+    .selector { display: none; }
+    .escena { padding: 13px 0; font-size: 11px; letter-spacing: 0; }
+    .teclas { grid-template-columns: 1fr 1fr .6fr .6fr; }
+    .mosaico { min-height: 64px; padding: 8px 10px; }
+    .mosaico .m-grande { font-size: 20px; }
+    #m-despertador .m-sub { display: none; }
+    #grilla-luces { min-height: 0; }
+    .canal .fader { min-height: 60px; }
+  }
+  @media (orientation: portrait) and (max-height: 680px) { .reloj .hora { font-size: 48px; } #grilla-luces { min-height: 240px; } }
 
-  /* Salas: un mosaico por sala; las de varias luces abren su propia pantalla */
-  .m-sala { grid-column: span 2; }
-  .m-luz .m-icono.emoji { font-size: 24px; }
-  .m-sala.on .m-icono { box-shadow: 0 0 26px color-mix(in srgb, var(--color) 80%, transparent); }
-  .m-sala .puntos { display: flex; gap: 5px; margin-top: 8px; }
-  .m-sala .puntos i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, .18); }
-  .m-sala .puntos i.on { background: var(--c); box-shadow: 0 0 8px var(--c); }
-  .mini { min-height: 104px; padding: 14px; }
-  .mini .m-power { width: 44px; height: 44px; top: 10px; right: 10px; }
-  .mini .m-titulo { font-size: 16px; }
-  .luz.sala { justify-content: flex-start; gap: 26px; }
-  .luz.sala .power { width: 128px; height: 128px; }
-  .luz.sala .power svg { width: 48px; height: 48px; }
-  .miembros h2 { margin-top: 4px; }
+  /* ---------- Pantallas de detalle ---------- */
+  #detalle { position: fixed; inset: 0; }
+  #volver { position: absolute; z-index: 2; top: calc(12px + env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left));
+            border-radius: 7px; background: var(--tecla); padding: 10px 14px 10px 10px; font: 500 13px/1 var(--mono); text-transform: uppercase;
+            letter-spacing: .04em; display: flex; align-items: center; gap: 6px; }
+  #volver svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 
-  /* Combinaciones de colores y efectos de una sala */
-  .combinaciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .combo { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 18px; padding: 10px 8px 9px; font-size: 13.5px;
-           text-align: center; color: var(--suave); transition: all .2s; }
-  .combo .muestra { height: 34px; border-radius: 12px; margin-bottom: 7px; background: var(--g); }
+  .luz { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; gap: 18px; overflow-y: auto; scrollbar-width: none;
+         padding: calc(70px + env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .luz::-webkit-scrollbar { display: none; }
+  .luz.activa { display: flex; }
+  .luz > * { width: 100%; max-width: 560px; flex-shrink: 0; }
+  .cabecera { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 2px; }
+  .nombre { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .estado { font: 400 12px/1.3 var(--mono); color: var(--suave); text-transform: uppercase; text-align: right; }
+
+  .centro { display: flex; }
+  .power { width: 100%; height: 74px; border-radius: var(--r); background: var(--tecla); display: flex; align-items: center; justify-content: center; gap: 14px;
+           box-shadow: inset 0 -4px 0 rgba(0,0,0,.35); font: 500 14px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--suave); }
+  .power:active { transform: translateY(2px); box-shadow: inset 0 -2px 0 rgba(0,0,0,.35); }
+  .power svg { display: none; }
+  .power::before { content: ""; width: 44px; height: 8px; border-radius: 4px; background: var(--tenue); transition: all .2s; }
+  .power::after { content: "Prender"; }
+  .luz.on .power { color: var(--texto); }
+  .luz.on .power::before { background: var(--color); box-shadow: 0 0 14px var(--color); }
+  .luz.on .power::after { content: "Apagar"; }
+
+  .controles { display: flex; flex-direction: column; gap: 18px; background: var(--canal); border-radius: var(--r); padding: 14px; }
+  .fila-titulo { display: flex; justify-content: space-between; font: 400 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+                 color: var(--suave); margin-bottom: 10px; }
+  .fila-titulo .pct { color: var(--texto); }
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 0; outline: none; touch-action: none; }
+  .brillo { height: 64px; border-radius: 7px; background: linear-gradient(to right, var(--color) var(--p, 50%), var(--hueco) var(--p, 50%)); }
+  .brillo::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 50px; border-radius: 3px; background: var(--perilla); box-shadow: 0 2px 6px rgba(0,0,0,.6); }
+  .brillo::-moz-range-thumb { width: 8px; height: 50px; border-radius: 3px; background: var(--perilla); border: 0; }
+  .tono { height: 34px; border-radius: 7px; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+  .tono::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 44px; border-radius: 3px; background: var(--perilla); box-shadow: 0 0 0 2px rgba(0,0,0,.5); }
+  .tono::-moz-range-thumb { width: 8px; height: 44px; border-radius: 3px; background: var(--perilla); border: 0; }
+  .blancos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .blanco { background: var(--tecla); border-radius: 7px; padding: 14px 0; font-size: 14px; text-align: center; box-shadow: inset 0 -3px 0 rgba(0,0,0,.3); }
+  .blanco:active { background: var(--tecla-on); }
+  .blanco i { display: inline-block; width: 16px; height: 6px; border-radius: 2px; margin-right: 8px; vertical-align: middle; }
+  .luz.offline .centro, .luz.offline .controles { opacity: .3; pointer-events: none; }
+
+  .luz.sala { gap: 18px; }
+  .miembros .grilla { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+  .combinaciones { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .combo { background: var(--canal); border-radius: 7px; padding: 8px 8px 10px; font-size: 13px; text-align: center; color: var(--suave); }
+  .combo .muestra { height: 10px; border-radius: 3px; margin-bottom: 9px; background: var(--g); }
   .combo.animada .muestra { background-size: 300% 100%; animation: correr 3s linear infinite; }
   @keyframes correr { to { background-position: 300% 0; } }
-  .combo:active { transform: scale(.96); }
-  .combo.activa { border-color: rgba(255, 255, 255, .8); color: var(--texto); background: rgba(255, 255, 255, .14); }
-  .boton-musica { width: 100%; border: 0; border-radius: 22px; padding: 18px; font-size: 18px; font-weight: 650; text-align: center; color: #fff;
-                  background: linear-gradient(110deg, #ff3c9a, #7a2cff, #1e9bff); box-shadow: 0 8px 30px -8px rgba(122, 44, 255, .7); }
-  .boton-musica:active { transform: scale(.98); }
-
-  /* Modo música: escucha por el micrófono y prende las luces con cada golpe */
-  #musica { position: fixed; z-index: 7; inset: 0; background: #05060a; display: flex; flex-direction: column; align-items: center;
-            justify-content: space-between; padding: calc(30px + env(safe-area-inset-top)) 24px calc(30px + env(safe-area-inset-bottom)); text-align: center; }
-  #musica > * { width: 100%; max-width: 420px; }
-  #musica h1 { margin: 0; font-size: 26px; }
-  #musica .pulso-caja { display: grid; place-items: center; height: 260px; }
-  #musica .pulso { width: 170px; height: 170px; border-radius: 50%; background: var(--c, #7a2cff); transition: transform .08s, background .15s;
-                   box-shadow: 0 0 90px 10px color-mix(in srgb, var(--c, #7a2cff) 60%, transparent); }
-  #musica .nivel { height: 10px; border-radius: 99px; background: var(--vidrio); overflow: hidden; }
-  #musica .nivel i { display: block; height: 100%; width: 0; background: #fff; transition: width .05s; }
-  #musica .estado-m { color: var(--suave); min-height: 22px; }
-  #musica .opciones { justify-content: center; }
-  #musica .parar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 16px; font-size: 17px; text-align: center; }
-
-  /* Resumen de la casa debajo del reloj */
-  .resumen { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 16px; }
-  .pastilla { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 99px; padding: 7px 14px; font-size: 14px;
-              color: var(--suave); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
-  .pastilla b { color: var(--texto); font-weight: 600; }
-  .pastilla:active { background: rgba(255, 255, 255, .18); }
-
-  .m-clima { justify-content: center; gap: 10px; }
-  .m-clima .fila { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-  .m-clima .fila b { font-size: 24px; font-variant-numeric: tabular-nums; }
-  .m-clima .fila span:last-child { color: var(--suave); }
-
-  /* ---- Detalle: una pantalla por luz o ventana de información ---- */
-  #detalle { position: fixed; inset: 0; }
-  #volver { position: absolute; z-index: 2; top: calc(14px + env(safe-area-inset-top)); left: 12px; border: 1px solid var(--borde);
-            background: rgba(20, 23, 31, .7); border-radius: 99px; padding: 8px 16px 8px 12px; font-size: 15px; display: flex; align-items: center; gap: 4px; }
-  #volver svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-
-  .luz { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: space-between;
-         padding: calc(76px + env(safe-area-inset-top)) 24px calc(40px + env(safe-area-inset-bottom)); overflow-y: auto; }
-  .luz.activa { display: flex; }
-  .luz > * { width: 100%; max-width: 420px; }
-
-  .cabecera { text-align: center; }
-  .nombre { margin: 0; font-size: 30px; font-weight: 650; letter-spacing: -.02em; }
-  .estado { margin-top: 4px; color: var(--suave); font-size: 15px; }
-
-  /* Botón de encendido */
-  .centro { display: flex; justify-content: center; padding: 12px 0; }
-  .power { position: relative; width: 168px; height: 168px; border-radius: 50%; border: 1px solid var(--borde);
-           background: var(--vidrio); display: grid; place-items: center; transition: all .35s ease; }
-  .power svg { width: 64px; height: 64px; stroke: var(--suave); fill: none; stroke-width: 2.2;
-               stroke-linecap: round; transition: stroke .35s; }
-  .luz.on .power { background: var(--color); border-color: transparent;
-                   box-shadow: 0 0 0 14px color-mix(in srgb, var(--color) 18%, transparent),
-                               0 0 90px 10px color-mix(in srgb, var(--color) 55%, transparent); }
-  .luz.on .power svg { stroke: #101218; }
-  .power:active { transform: scale(.96); }
-
-  /* Controles */
-  .controles { display: flex; flex-direction: column; gap: 22px; }
-  .fila-titulo { display: flex; justify-content: space-between; color: var(--suave); font-size: 14px; margin-bottom: 10px; }
-
-  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 0; outline: none; touch-action: pan-y; }
-  input[type=range]::-webkit-slider-runnable-track { border-radius: 99px; }
-  input[type=range]::-moz-range-track { border-radius: 99px; }
-
-  /* Brillo: barra gruesa que se llena */
-  .brillo { height: 58px; border-radius: 99px;
-            background: linear-gradient(to right, var(--color) var(--p, 50%), var(--vidrio) var(--p, 50%)); border: 1px solid var(--borde); }
-  .brillo::-webkit-slider-thumb { -webkit-appearance: none; width: 4px; height: 58px; background: transparent; }
-  .brillo::-moz-range-thumb { width: 4px; height: 58px; background: transparent; border: 0; }
-
-  /* Tono: arcoíris */
-  .tono { height: 26px; border-radius: 99px; border: 1px solid var(--borde);
-          background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
-  .tono::-webkit-slider-thumb { -webkit-appearance: none; width: 34px; height: 34px; border-radius: 50%;
-          background: #fff; border: 3px solid rgba(0, 0, 0, .35); box-shadow: 0 2px 8px rgba(0, 0, 0, .5); }
-  .tono::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 3px solid rgba(0, 0, 0, .35); }
-
-  .blancos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .blanco { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 13px 0; font-size: 15px; text-align: center; transition: background .2s; }
-  .blanco:active { background: rgba(255, 255, 255, .18); }
-  .blanco i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
-
-  .luz.offline .centro, .luz.offline .controles { opacity: .25; pointer-events: none; }
+  .combo:active { background: var(--tecla); }
+  .combo.activa { color: var(--texto); background: var(--tecla-on); box-shadow: inset 0 0 0 1px var(--perilla); }
+  .boton-musica { width: 100%; height: 58px; border-radius: var(--r); background: var(--tecla); font: 500 14px/1 var(--mono); text-transform: uppercase;
+                  letter-spacing: .08em; text-align: center; box-shadow: inset 0 -3px 0 rgba(0,0,0,.35); }
 
   /* Ventanas de información (viaje y clima) */
-  .info { justify-content: center; gap: 28px; }
-  .grande { font-size: 84px; font-weight: 700; letter-spacing: -.04em; line-height: 1; text-align: center; font-variant-numeric: tabular-nums; }
-  .sub { margin-top: 8px; text-align: center; color: var(--suave); font-size: 16px; }
-  .datos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .dato { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 16px; padding: 12px 6px; text-align: center; }
-  .dato b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
-  .dato span { color: var(--suave); font-size: 13px; }
-  .aviso { text-align: center; color: var(--suave); font-size: 15px; }
-  .info.clima { justify-content: space-evenly; gap: 16px; }
-  .lugar { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 24px; padding: 18px 20px; }
-  .lugar .arriba { display: flex; justify-content: space-between; align-items: baseline; color: var(--suave); font-size: 15px; }
-  .lugar .medio { display: flex; align-items: center; gap: 14px; margin: 6px 0 8px; }
-  .lugar .icono { font-size: 52px; line-height: 1; }
-  .lugar .temp { font-size: 56px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .info { justify-content: flex-start; }
+  .grande { font: 400 88px/1 var(--mono); letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+  .sub { margin-top: 8px; color: var(--suave); font-size: 16px; }
+  .datos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .dato { background: var(--canal); border-radius: 7px; padding: 12px 8px; }
+  .dato b { display: block; font: 500 20px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+  .dato span { color: var(--suave); font-size: 12px; }
+  .aviso { color: var(--suave); font: 400 11px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+  .lugar { background: var(--canal); border-radius: var(--r); padding: 16px; }
+  .lugar .arriba { display: flex; justify-content: space-between; font: 400 12px/1 var(--mono); text-transform: uppercase; color: var(--suave); }
+  .lugar .medio { display: flex; align-items: baseline; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+  .lugar .icono { display: none; }
+  .lugar .temp { font: 400 56px/1 var(--mono); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
   .lugar .desc { font-size: 17px; }
-  .lugar .extra { color: var(--suave); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .lugar .extra { color: var(--suave); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
 
-  /* ---- Rutinas: despertador y modo trabajo ---- */
-  .m-rutina .abrir { all: unset; position: absolute; inset: 0; cursor: pointer; }
-  .m-rutina .m-icono, .m-rutina .textos { pointer-events: none; position: relative; }
-  .m-rutina .interruptor { position: absolute; top: 14px; right: 14px; }
-  .m-rutina.activa { border-color: rgba(255, 196, 120, .45); background: rgba(255, 180, 90, .10); }
-  .interruptor { width: 52px; height: 30px; border-radius: 99px; border: 0; padding: 0; background: rgba(255, 255, 255, .16); position: relative; transition: background .25s; flex: none; }
-  .interruptor::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .25s; }
-  .interruptor.on { background: #34c759; }
-  .interruptor.on::after { transform: translateX(22px); }
-  .ajustes { justify-content: flex-start; gap: 16px; }
-  .tarjeta { border: 1px solid var(--borde); background: var(--vidrio); border-radius: 22px; padding: 16px 18px; }
-  .renglon { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 17px; }
-  .etiqueta { color: var(--suave); font-size: 14px; margin-bottom: 10px; }
-  .ajustes input[type=time] { font: inherit; font-size: 56px; font-weight: 700; color: var(--texto); background: none; border: 0; width: 100%;
-                              text-align: center; font-variant-numeric: tabular-nums; color-scheme: dark; }
-  .opciones { display: flex; flex-wrap: wrap; gap: 8px; }
-  .opciones .chip { padding: 8px 14px; }
+  /* Rutinas */
+  .tarjeta { background: var(--canal); border-radius: var(--r); padding: 14px 16px; }
+  .renglon { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 16px; }
+  .etiqueta { font: 400 11px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--suave); margin-bottom: 10px; }
+  .tarjeta .interruptor { width: 44px; height: 44px; border-radius: 8px; }
+  .tarjeta .interruptor::after { inset: 16px; }
+  .ajustes input[type=time] { font: 400 56px/1 var(--mono); color: var(--texto); background: none; border: 0; width: 100%; color-scheme: dark; }
+  .opciones { display: flex; flex-wrap: wrap; gap: 6px; }
+  .opciones .chip { background: var(--tecla); padding: 10px 14px; }
+  .opciones .chip.sel { background: var(--tecla-on); box-shadow: inset 0 0 0 1px var(--perilla); }
+  .opciones .chip i { display: none; }
   .dias .chip { width: 42px; height: 42px; padding: 0; justify-content: center; }
-  .probar { width: 100%; border: 1px solid var(--borde); background: rgba(255, 255, 255, .12); border-radius: 18px; padding: 14px; font-size: 16px; text-align: center; }
-  .probar:active { background: rgba(255, 255, 255, .25); }
-  .explica { color: var(--suave); font-size: 14px; text-align: center; }
+  .probar { width: 100%; height: 54px; border-radius: var(--r); background: var(--tecla); font: 500 13px/1 var(--mono); text-transform: uppercase;
+            letter-spacing: .06em; text-align: center; }
+  .probar:active { background: var(--tecla-on); }
+  .explica { color: var(--suave); font-size: 14px; }
 
-  /* ---- Rickuel: la pantalla es la página de Rickuel (web/rickuel/) dentro de un marco ---- */
+  /* Rickuel (ya no se usa en el inicio, queda por si se abre desde otra pantalla) */
   .luz.rickuel { padding: 0; }
-  .luz.rickuel > iframe { max-width: none; width: 100%; height: 100%; border: 0; background: transparent; }
-  body.en-rickuel #microfono { display: none; }   /* Rickuel tiene su propio micrófono */
+  .luz.rickuel > iframe { max-width: none; width: 100%; height: 100%; border: 0; }
 
-  /* ---- Hablarle al panel ---- */
-  #microfono { position: fixed; z-index: 5; right: 18px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%;
-               border: 0; background: #fff; box-shadow: 0 6px 24px rgba(0, 0, 0, .5); display: grid; place-items: center; }
-  #microfono svg { width: 28px; height: 28px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
-  #voz { position: fixed; z-index: 6; inset: 0; background: rgba(5, 7, 11, .97); display: flex; flex-direction: column;
-         align-items: center; justify-content: center; gap: 22px; padding: 30px; text-align: center; }
-  #voz .onda { width: 110px; height: 110px; border-radius: 50%; background: #fff; display: grid; place-items: center; }
-  #voz .onda svg { width: 44px; height: 44px; stroke: #101218; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+  /* ---------- Hablarle al panel ---------- */
+  #voz { position: fixed; z-index: 6; inset: 0; background: rgba(15, 16, 18, .97); display: flex; flex-direction: column;
+         align-items: center; justify-content: center; gap: 20px; padding: 30px; text-align: center; }
+  #voz .onda { width: 96px; height: 96px; border-radius: 14px; background: var(--tecla); display: grid; place-items: center; }
+  #voz .onda svg { width: 40px; height: 40px; stroke: var(--texto); fill: none; stroke-width: 1.8; stroke-linecap: round; }
   #voz.escuchando .onda { animation: latido 1.2s ease-in-out infinite; }
-  @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, .35); } 50% { box-shadow: 0 0 0 26px rgba(255, 255, 255, 0); } }
+  @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 179, 92, .45); } 50% { box-shadow: 0 0 0 18px rgba(255, 179, 92, 0); } }
   #voz .oido { font-size: 22px; min-height: 30px; }
-  #voz .respuesta { font-size: 18px; color: var(--suave); max-width: 420px; }
-  #voz .ayuda { font-size: 14px; color: rgba(244, 246, 250, .4); max-width: 420px; line-height: 1.7; }
+  #voz .respuesta { font-size: 18px; color: var(--suave); max-width: 440px; }
+  #voz .ayuda { font: 400 12px/1.8 var(--mono); color: var(--tenue); max-width: 440px; }
 
-  #sin-servidor { position: fixed; z-index: 4; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); padding: 12px 16px;
-                  border-radius: 16px; background: #5a3a12; color: #ffe2b8; font-size: 15px; text-align: center; box-shadow: 0 6px 20px rgba(0, 0, 0, .4); }
+  /* ---------- Modo música ---------- */
+  #musica { position: fixed; z-index: 7; inset: 0; background: var(--fondo); display: flex; flex-direction: column; align-items: center;
+            justify-content: space-between; padding: calc(28px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom)); }
+  #musica > * { width: 100%; max-width: 460px; }
+  #musica h1 { margin: 0; font-size: 26px; }
+  #musica .estado-m { color: var(--suave); font-size: 14px; min-height: 20px; margin-top: 4px; }
+  #musica .pulso-caja { display: grid; place-items: center; height: 240px; }
+  #musica .pulso { width: 160px; height: 160px; border-radius: 20px; background: var(--c, #7a2cff); transition: transform .08s, background .15s;
+                   box-shadow: 0 0 80px 6px color-mix(in srgb, var(--c, #7a2cff) 55%, transparent); }
+  #musica .nivel { height: 8px; border-radius: 3px; background: var(--hueco); overflow: hidden; }
+  #musica .nivel i { display: block; height: 100%; width: 0; background: var(--perilla); transition: width .05s; }
+  #musica .parar { width: 100%; height: 56px; border-radius: var(--r); background: var(--tecla); font: 500 14px/1 var(--mono); text-transform: uppercase; text-align: center; }
 
-  /* ---- Modo noche: pantalla negra con un reloj tenue ---- */
-  #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column;
-           align-items: center; justify-content: center; color: rgba(255, 255, 255, .32); cursor: pointer; }
-  #noche .hora { font-size: 112px; font-weight: 200; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
-  #noche .fecha { margin-top: 10px; font-size: 18px; }
-  #noche .salida { margin-top: 36px; font-size: 16px; color: rgba(255, 255, 255, .22); }
-  #noche .pista { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); font-size: 13px; color: rgba(255, 255, 255, .14); }
+  #sin-servidor { position: fixed; z-index: 4; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top)); padding: 12px 14px;
+                  border-radius: var(--r); background: #3b2a14; color: #ffd8a6; font-size: 14px; text-align: center; }
 
-  @media (max-height: 640px) { .power { width: 128px; height: 128px; } .power svg { width: 48px; height: 48px; } .controles { gap: 14px; }
-                               .reloj .hora { font-size: 56px; } .mosaico { min-height: 112px; } }
+  /* ---------- Modo noche: reloj tenue ---------- */
+  #noche { position: fixed; inset: 0; z-index: 10; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center;
+           color: rgba(255, 255, 255, .30); cursor: pointer; }
+  #noche .hora { font: 300 112px/1 var(--mono); letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
+  #noche .fecha { margin-top: 12px; font: 400 15px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+  #noche .salida { margin-top: 32px; font: 400 14px/1 var(--mono); color: rgba(255, 255, 255, .2); }
+  #noche .pista { position: absolute; bottom: calc(24px + env(safe-area-inset-bottom)); font-size: 12px; color: rgba(255, 255, 255, .12); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
@@ -278,58 +285,44 @@
 <div id="sin-servidor" class="oculta">Esperando al servidor del panel… Si recién prendiste el celular, tarda menos de un minuto.</div>
 
 <main id="inicio">
-  <header class="reloj"><div class="hora"></div><div class="fecha"></div>
-    <div class="resumen">
-      <button class="pastilla" id="p-luces">💡 <b>-</b> prendidas</button>
-      <button class="pastilla oculta" id="p-clima">🌡️ <b></b></button>
-      <button class="pastilla oculta" id="p-viaje">🚗 Salir <b></b></button>
+  <header class="reloj">
+    <div class="tira">
+      <span class="fecha-corta"></span>
+      <button class="pastilla oculta" id="p-clima"><span class="oculta"></span><b></b></button>
+      <button class="pastilla oculta" id="p-viaje">Salir <b></b></button>
     </div>
+    <div class="fila-hora"><div class="hora"></div><button id="p-luces"><b>-</b> prendidas</button></div>
   </header>
-  <section class="bloque"><h2>Salas</h2><div class="grilla" id="grilla-luces"></div></section>
-  <section class="bloque"><h2>Escenas</h2><div class="selector" id="selector"></div><div class="escenas" id="escenas"></div></section>
-  <section class="bloque"><h2>Rutinas</h2>
-    <div class="grilla">
-      <div class="mosaico m-rutina" id="m-despertador">
-        <button class="abrir" aria-label="Ajustes del despertador"></button>
-        <div class="m-icono">⏰</div>
-        <div class="textos"><div class="m-grande">--:--</div><div class="m-sub">Despertador</div></div>
-        <button class="interruptor" aria-label="Activar o desactivar el despertador"></button>
-      </div>
-      <div class="mosaico m-rutina" id="m-trabajo">
-        <button class="abrir" aria-label="Ajustes del modo trabajo"></button>
-        <div class="m-icono">🚦</div>
-        <div class="textos"><div class="m-titulo">Modo trabajo</div><div class="m-sub">Apagado</div></div>
-        <button class="interruptor" aria-label="Activar o desactivar el modo trabajo"></button>
-      </div>
+  <div id="grilla-luces" aria-label="Salas"></div>
+  <section class="bloque-escenas"><div class="escenas" id="escenas"></div><div class="selector" id="selector"></div></section>
+  <div class="teclas">
+    <div class="mosaico m-rutina" id="m-despertador">
+      <button class="abrir" aria-label="Ajustes del despertador"></button>
+      <div class="m-icono"></div>
+      <div class="textos"><div class="m-titulo">Alarma</div><div class="m-grande">--:--</div><div class="m-sub"></div></div>
+      <button class="interruptor" aria-label="Activar o desactivar el despertador"></button>
     </div>
-  </section>
-  <section class="bloque" style="padding-bottom: 70px"><h2>Hoy</h2>
-    <div class="grilla">
-      <button class="mosaico" id="m-viaje">
-        <div class="m-icono">🚗</div>
-        <div><div class="m-grande">--:--</div><div class="m-sub">Salir al trabajo</div></div>
-      </button>
-      <button class="mosaico m-clima" id="m-clima">
-        <div class="m-icono">🌡️</div>
-        <div class="filas"></div>
-      </button>
-      <button class="mosaico ancho" id="m-rickuel">
-        <div class="m-icono">🧪</div>
-        <div><div class="m-titulo" style="margin:0">Rickuel</div><div class="m-sub">Charlá con él y pedile cosas de la casa</div></div>
-      </button>
-      <button class="mosaico ancho" id="m-noche">
-        <div class="m-icono">🌙</div>
-        <div><div class="m-titulo" style="margin:0">Modo noche</div><div class="m-sub">Apaga la pantalla y deja un reloj tenue</div></div>
-      </button>
+    <div class="mosaico m-rutina" id="m-trabajo">
+      <button class="abrir" aria-label="Ajustes del modo trabajo"></button>
+      <div class="m-icono"></div>
+      <div class="textos"><div class="m-titulo">Trabajo</div><div class="m-sub">Apagado</div></div>
+      <button class="interruptor" aria-label="Activar o desactivar el modo trabajo"></button>
     </div>
-  </section>
+    <button class="mosaico tecla-simple" id="m-noche"><svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>Noche</button>
+    <button class="mosaico tecla-simple" id="microfono" aria-label="Hablarle al panel"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg>Voz</button>
+  </div>
+  <!-- Datos que el resto de la página sigue llenando; en el inicio nuevo se ven en la tira de arriba -->
+  <div class="oculta">
+    <button class="mosaico" id="m-viaje"><div class="m-icono"></div><div><div class="m-grande">--:--</div><div class="m-sub"></div></div></button>
+    <button class="mosaico m-clima" id="m-clima"><div class="m-icono"></div><div class="filas"></div></button>
+    <button class="mosaico" id="m-rickuel"></button>
+  </div>
 </main>
 
 <div id="detalle" class="oculta">
   <button id="volver"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>Inicio</button>
 </div>
 
-<button id="microfono" aria-label="Hablarle al panel"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></button>
 <div id="voz" class="oculta">
   <div class="onda"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/></svg></div>
   <div class="oido"></div>
@@ -521,47 +514,41 @@ function crear(l) {
 }
 
 function mosaico(nombre, icono, alAbrir, alPrender) {
+  // Canal de la consola: lectura arriba, fader en el medio, nombre (abre la pantalla) y tecla de prender/apagar abajo
   const m = document.createElement('div');
-  m.className = 'mosaico m-luz';
-  m.innerHTML = `<div class="relleno"></div><button class="abrir"></button>
-    <div class="m-icono">${icono}</div>
-    <div class="textos"><div class="m-titulo"></div><div class="m-sub"></div></div>
-    <div class="gran-pct"></div>
-    <button class="m-power" aria-label="Encender o apagar">${ICONO}</button>`;
+  m.className = 'canal m-luz';
+  m.innerHTML = `<div class="lectura m-sub"></div>
+    <div class="fader"><div class="relleno"></div><div class="gran-pct"></div></div>
+    <button class="abrir"><span class="m-titulo"></span></button>
+    <div class="puntos"></div>
+    <button class="m-power"><span></span></button>`;
   m.querySelector('.m-titulo').textContent = nombre;
   m.querySelector('.abrir').setAttribute('aria-label', 'Abrir ' + nombre);
-  m.querySelector('.abrir').onclick = () => { if (!m.recienArrastrado) alAbrir(); };
-  m.querySelector('.m-power').onclick = () => { if (!m.recienArrastrado) alPrender(); };
+  m.querySelector('.m-power').setAttribute('aria-label', 'Prender o apagar ' + nombre);
+  m.querySelector('.abrir').onclick = () => alAbrir();
+  m.querySelector('.m-power').onclick = () => alPrender();
   return m;
 }
 
-// Arrastrar de costado sobre un mosaico cambia el brillo (como las tarjetas de Home Assistant); de arriba a abajo sigue desplazando.
+// Arrastrar el fader para arriba o para abajo cambia el brillo. Se mueve desde donde estaba (un toque solo no cambia nada).
 function arrastrarBrillo(m, id, brilloActual, alCambiar) {
-  let x0, y0, base, decidido = false, activo = false;
-  m.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; base = brilloActual(); decidido = activo = false; });
-  m.addEventListener('pointermove', e => {
-    if (x0 == null || (decidido && !activo)) return;
-    const dx = e.clientX - x0, dy = e.clientY - y0;
-    if (!decidido) {
-      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
-      decidido = true;
-      activo = Math.abs(dx) > Math.abs(dy) && !m.classList.contains('offline');
-      if (!activo) return;
-      m.setPointerCapture(e.pointerId);
-      m.classList.add('arrastrando');
-    }
-    const v = Math.max(1, Math.min(100, Math.round(base + dx / m.offsetWidth * 100)));
-    m.querySelector('.gran-pct').textContent = v + '%';
+  const f = m.querySelector('.fader');
+  let y0 = null, base, activo = false;
+  f.addEventListener('pointerdown', e => { y0 = e.clientY; base = brilloActual(); activo = false; f.setPointerCapture(e.pointerId); });
+  f.addEventListener('pointermove', e => {
+    if (y0 == null) return;
+    const dy = y0 - e.clientY;
+    if (!activo) { if (Math.abs(dy) < 6) return; activo = true; m.classList.add('arrastrando'); }
+    const v = Math.max(1, Math.min(100, Math.round(base + dy / f.offsetHeight * 100)));
+    m.querySelector('.gran-pct').textContent = v;
+    m.style.setProperty('--p', v + '%');
+    m.classList.add('on');
     alCambiar(v);
     enviar(id, { encendida: true, brillo: v });
   });
-  const soltar = () => {
-    if (activo) { m.recienArrastrado = true; setTimeout(() => m.recienArrastrado = false, 350); }
-    m.classList.remove('arrastrando');
-    x0 = null; activo = false;
-  };
-  m.addEventListener('pointerup', soltar);
-  m.addEventListener('pointercancel', soltar);
+  const soltar = () => { m.classList.remove('arrastrando'); y0 = null; activo = false; };
+  f.addEventListener('pointerup', soltar);
+  f.addEventListener('pointercancel', soltar);
 }
 
 // Refleja en la pantalla un cambio que se está mandando, sin esperar a la luz
@@ -594,7 +581,7 @@ function pintarMosaico(s) {
   m.classList.toggle('offline', off);
   m.style.setProperty('--color', s.style.getPropertyValue('--color') || '#ffb347');
   m.style.setProperty('--p', s.querySelector('.brillo').value + '%');
-  m.querySelector('.m-sub').textContent = off ? 'Sin conexión' : on ? `Prendida · ${s.querySelector('.brillo').value}%` : 'Apagada';
+  m.querySelector('.m-sub').textContent = off ? 'sin red' : on ? s.querySelector('.brillo').value + '%' : 'off';
   pintarSalas();
 }
 
@@ -650,7 +637,7 @@ async function cargarSalas() {
       </div>
       <div><h2>Combinaciones</h2><div class="combinaciones fijas"></div></div>
       <div><h2>Animadas</h2><div class="combinaciones animadas"></div></div>
-      <button class="boton-musica">🎵 Modo música</button>
+      <button class="boton-musica">Modo música</button>
       <div class="miembros"><h2>Cada luz</h2><div class="grilla"></div></div>`;
     p.querySelector('.nombre').textContent = nombre;
     armarCombinaciones(id, sala, p);
@@ -666,8 +653,6 @@ async function cargarSalas() {
 
     const m = sala.mosaico = mosaico(nombre, iconoSala(nombre), () => abrir(p), alternar);
     m.classList.add('m-sala');
-    m.querySelector('.m-icono').classList.add('emoji');
-    m.querySelector('.textos').insertAdjacentHTML('beforeend', '<div class="puntos"></div>');
     arrastrarBrillo(m, id, () => sala.brillo || 100, v => miembros().forEach(x => reflejar(x, { encendida: true, brillo: v })));
   }
   ubicarMosaicos();
@@ -728,7 +713,7 @@ function pintarEfectos() {
     s.pantalla.querySelectorAll('.animada').forEach(b => b.classList.toggle('activa', efectosActivos[id] === b.dataset.efecto));
     if (s.mosaico) {
       const ef = ANIMADAS.find(a => a[0] === efectosActivos[id]);
-      if (ef) s.mosaico.querySelector('.m-sub').textContent = '✨ ' + ef[1];
+      if (ef) s.mosaico.querySelector('.m-sub').textContent = ef[1];
     }
   }
 }
@@ -859,11 +844,6 @@ function ubicarMosaicos() {
     m.classList.toggle('mini', !!sala);
     (sala ? sala.pantalla.querySelector('.miembros .grilla') : grillaLuces).appendChild(m);
     // Una luz que es una sala sola (la cocina) lleva el ícono de la sala
-    const sola = Object.values(salas).find(s => !salaGrande(s) && s.luces[0] === id);
-    if (sola && !m.querySelector('.m-icono.emoji')) {
-      m.querySelector('.m-icono').classList.add('emoji');
-      m.querySelector('.m-icono').textContent = iconoSala(sola.nombre);
-    }
   }
   pintarSelector();
 }
@@ -881,6 +861,7 @@ function pintarSalas() {
     sala.on = on.length > 0;
     sala.brillo = on.length ? Math.round(on.reduce((t, x) => t + +x.querySelector('.brillo').value, 0) / on.length) : null;
     const color = on.length ? on[0].style.getPropertyValue('--color') : '#ffb347';
+    const lectura = !vivas.length ? 'sin red' : !on.length ? 'off' : sala.brillo + '%';
     const texto = !vivas.length ? 'Sin conexión' : !on.length ? (ls.length > 1 ? 'Apagadas' : 'Apagada')
       : on.length === ls.length ? `${ls.length > 1 ? 'Todas prendidas' : 'Prendida'} · ${sala.brillo}%` : `${on.length} de ${ls.length} prendidas · ${sala.brillo}%`;
     const m = sala.mosaico, p = sala.pantalla;
@@ -888,7 +869,7 @@ function pintarSalas() {
     m.classList.toggle('offline', !vivas.length);
     m.style.setProperty('--color', color);
     m.style.setProperty('--p', (sala.brillo || 0) + '%');
-    m.querySelector('.m-sub').textContent = texto;
+    m.querySelector('.m-sub').textContent = lectura;
     m.querySelector('.puntos').innerHTML = ls.map(x => x.classList.contains('on') && !x.classList.contains('offline')
       ? `<i class="on" style="--c:${x.style.getPropertyValue('--color')}"></i>` : '<i></i>').join('');
     p.classList.toggle('on', sala.on);
@@ -955,7 +936,7 @@ const escenas = document.getElementById('escenas');
 for (const [nombre, icono, cambios] of ESCENAS) {
   const b = document.createElement('button');
   b.className = 'escena';
-  b.innerHTML = `<span>${icono}</span>${nombre}`;
+  b.textContent = nombre;
   b.onclick = () => { aplicarEscena(cambios); b.classList.add('tocada'); setTimeout(() => b.classList.remove('tocada'), 300); };
   escenas.appendChild(b);
 }
@@ -967,6 +948,7 @@ function pintarReloj() {
   const ahora = new Date();
   document.querySelectorAll('.hora').forEach(e => e.textContent = hora(ahora));
   document.querySelectorAll('.fecha').forEach(e => e.textContent = fecha(ahora).replace(/^./, c => c.toUpperCase()));
+  document.querySelectorAll('.fecha-corta').forEach(e => e.textContent = ahora.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/[.,]/g, ''));
 }
 pintarReloj();
 setInterval(pintarReloj, 5000);
@@ -1111,7 +1093,7 @@ async function refrescarClima() {
     if (clave === 'casa') {
       const pc = document.getElementById('p-clima');
       pc.classList.remove('oculta');
-      pc.firstChild.textContent = icono + ' ';
+      pc.querySelector('span').textContent = t[1].toLowerCase() + ' ';
       pc.querySelector('b').textContent = grados(c.temp);
     }
   }
@@ -1225,7 +1207,7 @@ function pintarRutinas() {
   chipsOpcion(sd.querySelector('.dias'), DIAS_CORTOS, d.dias, n => guardarAjustes({ despertador: { dias: alternarEn(d.dias, n) } }));
   const md = document.getElementById('m-despertador');
   md.querySelector('.m-grande').textContent = d.hora;
-  md.querySelector('.m-sub').textContent = d.activo ? 'Despertador · ' + resumirDias(d.dias) : 'Despertador apagado';
+  md.querySelector('.m-sub').textContent = d.activo ? resumirDias(d.dias) : 'apagado';
   // Qué está haciendo cada rutina ahora (lo informa el servidor)
   const est = ajustes.estado || {};
   for (const modo of ['despertador', 'trabajo']) {
@@ -1242,7 +1224,7 @@ function pintarRutinas() {
     caja.textContent = texto;
   }
   const t = ajustes.trabajo;
-  document.querySelector('#m-trabajo .m-sub').textContent = t.activo ? `Empieza ${t.minutos} min antes de salir` : 'Apagado';
+  document.querySelector('#m-trabajo .m-sub').textContent = t.activo ? `${t.minutos} min antes de salir` : 'Apagado';
 }
 cargarAjustes();
 setInterval(cargarAjustes, 15000);   // para ver el avance de las rutinas casi en vivo
