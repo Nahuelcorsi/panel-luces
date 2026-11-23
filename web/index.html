@@ -356,6 +356,10 @@
 
 <script src="/tiempo-real.js"></script>
 <script>
+// Si el servidor no tiene el tiempo real (WebSocket), la página sigue andando: refresca las luces cada 4 s como antes
+window.TR = window.TR || { conectado: false, on() {}, conectar() {} };
+</script>
+<script>
 // Sin zoom: frena el pellizco y el doble toque aunque el navegador ignore el viewport
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
