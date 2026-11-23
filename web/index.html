@@ -16,7 +16,7 @@
     --borde: rgba(255, 255, 255, .10);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { touch-action: pan-x pan-y; }   /* sin zoom: ni pellizco ni doble toque */
+  html, body, button { touch-action: manipulation; }   /* sin zoom: ni pellizco ni doble toque */
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--fondo); color: var(--texto);
                font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   button { font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
@@ -359,8 +359,6 @@
 // Sin zoom: frena el pellizco y el doble toque aunque el navegador ignore el viewport
 document.addEventListener('gesturestart', e => e.preventDefault());
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-let ultimoToque = 0;
-document.addEventListener('touchend', e => { const t = Date.now(); if (t - ultimoToque < 300 && !e.target.closest('input')) e.preventDefault(); ultimoToque = t; }, { passive: false });
 const inicio = document.getElementById('inicio');
 const detalle = document.getElementById('detalle');
 const ambiente = document.getElementById('ambiente');
