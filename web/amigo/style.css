@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;   /* si no, Chrome le pinta fondo blanco al marco dentro del panel oscuro */
   --fondo: #10161f;
   --texto: #f2f2f2;
   --panel: #1c2633;
@@ -105,7 +106,18 @@ body.kiosko #chat, body.kiosko #ajustes, body.kiosko #donde { display: none; }
 #resumen-votos a { color: inherit; }
 
 /* Dentro del panel de casa (index.html?panel): sin ajustes, el cerebro se configura en el servidor del panel */
-body.panel { background: transparent; }
+body.panel { background: #17191c; font-family: "Chivo", system-ui, sans-serif; }
+/* Mismo estilo "consola" que el panel: gris grafito, teclas planas, nada claro */
+@font-face { font-family: "Chivo"; src: url(/fuentes/chivo.woff2) format("woff2"); font-weight: 100 900; }
+body.panel #pantalla { fill: #0d0f11; stroke: #2d3136; }
+body.panel .tapa, body.panel #taza .cuerpo { fill: #0d0f11; }
+body.panel #burbuja, body.panel #memoria, body.panel #donde { background: #222529; border-radius: 10px; }
+body.panel input, body.panel select { background: #121417; border: 1px solid #2d3136; color: #ebe8e2; border-radius: 7px; }
+body.panel button { background: #2d3136; border: 0; color: #ebe8e2; border-radius: 7px; box-shadow: inset 0 -3px 0 rgba(0,0,0,.35); }
+body.panel #mic.activo { background: #8a2a20; }
+body.panel #texto { min-width: 0; }
+body.panel #calificar .votos button { background: #222529; }
+body.panel #calificar .votos button.elegido { background: #3a3f45; }
 body.panel #ajustes { display: none; }
 body.panel #app { padding-top: 56px; }
 [hidden] { display: none !important; }
